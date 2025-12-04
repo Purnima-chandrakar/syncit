@@ -10,7 +10,16 @@ const ACTIONS = require("./src/Actions");
 const server = http.createServer(app);
 // Allow configuring allowed CORS origin(s) via environment variable.
 // Example: CORS_ORIGIN="https://your-frontend.vercel.app"
-const corsOrigin = process.env.CORS_ORIGIN || (process.env.NODE_ENV === 'production' ? false : 'http://localhost:3000');
+// For production, be explicit. For dev, allow localhost.
+let corsOrigin = process.env.CORS_ORIGIN || (process.env.NODE_ENV === 'production' ? false : 'http://localhost:3000');
+
+// If CORS_ORIGIN is set, also allow it with http:// in case there's a mismatch
+if (corsOrigin && typeof corsOrigin === 'string' && corsOrigin.startsWith('https://')) {
+  corsOrigin = [corsOrigin, corsOrigin.replace('https://', 'http://')];
+}
+
+console.log('Socket.IO CORS configured for:', corsOrigin);
+
 const io = new Server(server, {
   // Increase heartbeat intervals to better tolerate brief network hiccups
   pingInterval: 25000,
@@ -18,6 +27,7 @@ const io = new Server(server, {
   cors: {
     origin: corsOrigin,
     methods: ["GET", "POST"],
+    credentials: true,
   },
 });
 
