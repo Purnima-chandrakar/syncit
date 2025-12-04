@@ -45,10 +45,10 @@ const Terminal = ({ socketRef, roomId, codeRef, personalCodeRef, source = 'share
       setOutput("ERROR: Socket not connected to backend\n");
       return;
     }
-    console.log("Socket connected, emitting TERMINAL_RUN with code length:", code?.length);
     setOutput("");
     setRunning(true);
     const code = (source === 'personal' ? personalCodeRef?.current : codeRef?.current) || "";
+    console.log("Socket connected, emitting TERMINAL_RUN with code length:", code?.length);
     socketRef.current.emit(ACTIONS.TERMINAL_RUN, { roomId, language, code });
   }
 
