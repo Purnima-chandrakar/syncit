@@ -1,15 +1,22 @@
 const express = require("express");
 const app = express();
+// health endpoint
+app.get('/health', (req, res) => res.json({ ok: true }));
 const http = require("http");
 const path = require("path");
 const { Server } = require("socket.io");
 const ACTIONS = require("./src/Actions");
 
 const server = http.createServer(app);
+// Allow configuring allowed CORS origin(s) via environment variable.
+// Example: CORS_ORIGIN="https://your-frontend.vercel.app"
+const corsOrigin = process.env.CORS_ORIGIN || (process.env.NODE_ENV === 'production' ? false : 'http://localhost:3000');
 const io = new Server(server, {
+  // Increase heartbeat intervals to better tolerate brief network hiccups
+  pingInterval: 25000,
+  pingTimeout: 20000,
   cors: {
-    origin:
-      process.env.NODE_ENV === "production" ? false : "http://localhost:3000",
+    origin: corsOrigin,
     methods: ["GET", "POST"],
   },
 });
@@ -134,6 +141,9 @@ if (process.env.NODE_ENV === "production") {
 }
 
 const userSocketMap = {};
+// Track per-room state: admin socketId, per-user edit permissions, and raised hands
+// roomState[roomId] = { adminId, permissions: { socketId: boolean }, hands: Set<socketId>, activeEditor: socketId|null, typingTimeout: NodeJS.Timeout|null }
+const roomState = {};
 function getAllConnectedClients(roomId) {
   // Map
   return Array.from(io.sockets.adapter.rooms.get(roomId) || []).map(
@@ -152,6 +162,20 @@ io.on("connection", (socket) => {
   socket.on(ACTIONS.JOIN, ({ roomId, username }) => {
     userSocketMap[socket.id] = username;
     socket.join(roomId);
+
+    // initialize room state if first join
+    if (!roomState[roomId]) {
+      roomState[roomId] = { adminId: socket.id, permissions: {}, hands: new Set(), activeEditor: null, typingTimeout: null };
+    }
+
+    const room = roomState[roomId];
+
+    // ensure permissions contains all clients; default true for admin, and true for others by default
+    const currentClients = getAllConnectedClients(roomId);
+    currentClients.forEach(({ socketId }) => {
+      if (!(socketId in room.permissions)) room.permissions[socketId] = socketId === room.adminId ? true : true;
+    });
+
     const clients = getAllConnectedClients(roomId);
     clients.forEach(({ socketId }) => {
       io.to(socketId).emit(ACTIONS.JOINED, {
@@ -160,15 +184,87 @@ io.on("connection", (socket) => {
         socketId: socket.id,
       });
     });
+
+    // broadcast current permissions and hands
+    io.in(roomId).emit(ACTIONS.PERMISSION_UPDATE, {
+      adminId: room.adminId,
+      permissions: room.permissions,
+      hands: Array.from(room.hands),
+    });
   });
 
-  socket.on(ACTIONS.CODE_CHANGE, ({ roomId, code }) => {
-    socket.in(roomId).emit(ACTIONS.CODE_CHANGE, { code });
+  socket.on(ACTIONS.CODE_CHANGE, ({ roomId, code, mode }) => {
+    // Only propagate shared edits
+    if (mode !== 'shared') return;
+
+    const room = roomState[roomId];
+    if (room) {
+      const canEdit = room.permissions[socket.id] !== false; // default true
+      if (!canEdit && socket.id !== room.adminId) {
+        // ignore edit attempts if not permitted
+        return;
+      }
+    }
+    socket.in(roomId).emit(ACTIONS.CODE_CHANGE, { code, mode: 'shared' });
   });
 
-  // Handle block/unblock editing from host and broadcast to room
+  // Legacy room-wide block/unblock editing from host and broadcast to room
   socket.on(ACTIONS.BLOCK_EDITING, ({ roomId, blocked }) => {
     io.in(roomId).emit(ACTIONS.EDITING_BLOCKED, { blocked });
+  });
+
+  // Admin sets per-user permission { roomId, targetSocketId, canEdit }
+  socket.on(ACTIONS.SET_USER_PERMISSION, ({ roomId, targetSocketId, canEdit }) => {
+    const room = roomState[roomId];
+    if (!room) return;
+    if (socket.id !== room.adminId) return; // only admin can change
+    room.permissions[targetSocketId] = !!canEdit;
+    io.in(roomId).emit(ACTIONS.PERMISSION_UPDATE, {
+      adminId: room.adminId,
+      permissions: room.permissions,
+      hands: Array.from(room.hands),
+    });
+  });
+
+  // Any user can raise/lower hand { roomId, raised: boolean }
+  socket.on(ACTIONS.RAISE_HAND, ({ roomId, raised }) => {
+    const room = roomState[roomId];
+    if (!room) return;
+    if (raised) room.hands.add(socket.id);
+    else room.hands.delete(socket.id);
+    io.in(roomId).emit(ACTIONS.PERMISSION_UPDATE, {
+      adminId: room.adminId,
+      permissions: room.permissions,
+      hands: Array.from(room.hands),
+    });
+  });
+
+  // Typing indicator from clients editing the shared doc { roomId }
+  socket.on(ACTIONS.TYPING, ({ roomId }) => {
+    const room = roomState[roomId];
+    if (!room) return;
+
+    // set current active editor and broadcast (only if changed)
+    if (room.activeEditor !== socket.id) {
+      room.activeEditor = socket.id;
+      io.in(roomId).emit(ACTIONS.ACTIVE_EDITOR, {
+        socketId: socket.id,
+        username: userSocketMap[socket.id],
+      });
+    }
+
+    // reset idle timeout to clear active editor after 1.5s of inactivity
+    if (room.typingTimeout) {
+      try { clearTimeout(room.typingTimeout); } catch (e) {}
+    }
+    room.typingTimeout = setTimeout(() => {
+      // clear only if still the same editor
+      if (room.activeEditor === socket.id) {
+        room.activeEditor = null;
+        io.in(roomId).emit(ACTIONS.ACTIVE_EDITOR, { socketId: null });
+      }
+      room.typingTimeout = null;
+    }, 1500);
   });
 
   // Terminal run request: receive language and code, run on server and stream output
@@ -320,12 +416,66 @@ io.on("connection", (socket) => {
   });
 
   socket.on(ACTIONS.SYNC_CODE, ({ socketId, code }) => {
-    io.to(socketId).emit(ACTIONS.CODE_CHANGE, { code });
+    // Send as a shared code-change payload to the specific socket
+    io.to(socketId).emit(ACTIONS.CODE_CHANGE, { code, mode: 'shared' });
+  });
+
+  // Admin kick user { roomId, targetSocketId }
+  socket.on(ACTIONS.KICK_USER, ({ roomId, targetSocketId }) => {
+    const room = roomState[roomId];
+    if (!room) return;
+    // only admin may kick
+    if (socket.id !== room.adminId) return;
+    const target = io.sockets.sockets.get(targetSocketId);
+    if (!target) return;
+    try {
+      const targetUsername = userSocketMap[targetSocketId];
+      // notify target they were kicked
+      io.to(targetSocketId).emit(ACTIONS.USER_KICKED, { reason: 'You were removed by admin' });
+      // notify admin of success
+      io.to(socket.id).emit('kick-success', { username: targetUsername });
+      // disconnect target after brief delay to let message reach them
+      setTimeout(() => {
+        target.disconnect(true);
+      }, 100);
+    } catch (e) {
+      console.warn('Error disconnecting target', e);
+      io.to(socket.id).emit('kick-error', { error: 'Failed to remove user' });
+    }
   });
 
   socket.on("disconnecting", () => {
     const rooms = [...socket.rooms];
     rooms.forEach((roomId) => {
+      // update room state
+      const room = roomState[roomId];
+      if (room) {
+        // remove from permissions and hands
+        delete room.permissions[socket.id];
+        room.hands.delete(socket.id);
+        // if admin leaves, pick next client as admin
+        if (room.adminId === socket.id) {
+          const remaining = getAllConnectedClients(roomId).filter(c => c.socketId !== socket.id);
+          room.adminId = remaining[0]?.socketId || null;
+        }
+        // if the disconnecting user was the active editor, clear it
+        if (room.activeEditor === socket.id) {
+          room.activeEditor = null;
+          if (room.typingTimeout) {
+            try { clearTimeout(room.typingTimeout); } catch (e) {}
+            room.typingTimeout = null;
+          }
+          io.in(roomId).emit(ACTIONS.ACTIVE_EDITOR, { socketId: null });
+        }
+
+        // broadcast permission update
+        io.in(roomId).emit(ACTIONS.PERMISSION_UPDATE, {
+          adminId: room.adminId,
+          permissions: room.permissions,
+          hands: Array.from(room.hands),
+        });
+      }
+
       socket.in(roomId).emit(ACTIONS.DISCONNECTED, {
         socketId: socket.id,
         username: userSocketMap[socket.id],

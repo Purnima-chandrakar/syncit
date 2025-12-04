@@ -1,16 +1,17 @@
 import React, { useEffect, useState, useRef } from "react";
 import ACTIONS from "../Actions";
 
-const LANGUAGES = ["javascript", "python", "java", "c", "cpp", "html", "css"];
+const LANGUAGES = ["javascript", "python", "java", "c", "cpp"];
 
-const Terminal = ({ socketRef, roomId, codeRef }) => {
+const Terminal = ({ socketRef, roomId, codeRef, personalCodeRef, source = 'shared' }) => {
   const [language, setLanguage] = useState("javascript");
   const [output, setOutput] = useState("");
   const [running, setRunning] = useState(false);
   const outRef = useRef(null);
 
   useEffect(() => {
-    if (!socketRef?.current) return;
+    const socket = socketRef?.current;
+    if (!socket) return;
 
     function handleOutput({ output: chunk, isError, done }) {
       // Ensure each chunk ends with a newline
@@ -24,18 +25,20 @@ const Terminal = ({ socketRef, roomId, codeRef }) => {
       }, 10);
     }
 
-    socketRef.current.on(ACTIONS.TERMINAL_OUTPUT, handleOutput);
+    socket.on(ACTIONS.TERMINAL_OUTPUT, handleOutput);
 
     return () => {
-      socketRef.current.off(ACTIONS.TERMINAL_OUTPUT, handleOutput);
+      try {
+        socket.off(ACTIONS.TERMINAL_OUTPUT, handleOutput);
+      } catch (e) {}
     };
-  }, [socketRef.current]);
+  }, [socketRef]);
 
   function run() {
     if (!socketRef?.current) return;
     setOutput("");
     setRunning(true);
-    const code = codeRef?.current || "";
+    const code = (source === 'personal' ? personalCodeRef?.current : codeRef?.current) || "";
     socketRef.current.emit(ACTIONS.TERMINAL_RUN, { roomId, language, code });
   }
 
@@ -50,12 +53,17 @@ const Terminal = ({ socketRef, roomId, codeRef }) => {
         }}
       >
         <label style={{ color: "#ddd" }}>Language</label>
-        <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+        <select className="langSelect" value={language} onChange={(e) => setLanguage(e.target.value)}>
           {LANGUAGES.map((l) => (
             <option key={l} value={l}>
               {l}
             </option>
           ))}
+        </select>
+        <label style={{ color: "#ddd", marginLeft: 8 }}>Source</label>
+        <select className="langSelect" value={source} onChange={(e) => (/* noop here, controlled by parent */ null)} disabled>
+          <option value="shared">Shared</option>
+          <option value="personal">Personal</option>
         </select>
         <button className="btn" onClick={run} disabled={running}>
           {running ? "Running..." : "Run"}
