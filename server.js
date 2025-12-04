@@ -269,6 +269,7 @@ io.on("connection", (socket) => {
 
   // Terminal run request: receive language and code, run on server and stream output
   socket.on(ACTIONS.TERMINAL_RUN, async ({ roomId, language, code }) => {
+    console.log("TERMINAL_RUN received:", { roomId, language, codeLength: code?.length });
     const runId = uuidv4();
     try {
       // If configured to use Judge0 (sandboxed runner), submit to Judge0 and return the streamed result.
