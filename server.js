@@ -18,8 +18,8 @@ if (corsOrigin && typeof corsOrigin === 'string' && corsOrigin.startsWith('https
   corsOrigin = [corsOrigin, corsOrigin.replace('https://', 'http://')];
 }
 
-console.log('Socket.IO CORS configured for:', corsOrigin);
-
+// Socket.IO CORS configured via env var
+ 
 const io = new Server(server, {
   // Increase heartbeat intervals to better tolerate brief network hiccups
   pingInterval: 25000,
@@ -279,7 +279,6 @@ io.on("connection", (socket) => {
 
   // Terminal run request: receive language and code, run on server and stream output
   socket.on(ACTIONS.TERMINAL_RUN, async ({ roomId, language, code }) => {
-    console.log("TERMINAL_RUN received:", { roomId, language, codeLength: code?.length });
     const runId = uuidv4();
     try {
       // If configured to use Judge0 (sandboxed runner), submit to Judge0 and return the streamed result.
@@ -341,20 +340,16 @@ io.on("connection", (socket) => {
       // helper to emit output back only to the socket that requested the run
       // so multiple users can run code concurrently without interfering
       function emitOut(payload) {
-        console.log("emitOut called with payload:", payload);
         io.to(socket.id).emit(ACTIONS.TERMINAL_OUTPUT, payload);
       }
 
       // If there's a compile step, run it first
       const execWithStream = (command, workdir) => {
-        console.log("execWithStream spawning:", command, "in", workdir);
         const proc = spawn(command, { cwd: workdir, shell: true });
         proc.stdout.on("data", (chunk) => {
-          console.log("stdout chunk:", chunk.toString());
           emitOut({ output: chunk.toString(), isError: false });
         });
         proc.stderr.on("data", (chunk) => {
-          console.log("stderr chunk:", chunk.toString());
           emitOut({ output: chunk.toString(), isError: true });
         });
         return proc;

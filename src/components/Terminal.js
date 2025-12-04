@@ -57,19 +57,16 @@ const Terminal = ({ socketRef, roomId, codeRef, personalCodeRef, source = 'share
 
   function run() {
     if (!socketRef?.current) {
-      console.error("Socket is null or undefined");
       setOutput("ERROR: Socket not connected\n");
       return;
     }
     if (!socketRef.current.connected) {
-      console.error("Socket not connected, connected:", socketRef.current.connected);
       setOutput("ERROR: Socket not connected to backend\n");
       return;
     }
     setOutput("");
     setRunning(true);
     const code = (source === 'personal' ? personalCodeRef?.current : codeRef?.current) || "";
-    console.log("Socket connected, emitting TERMINAL_RUN with code length:", code?.length);
     socketRef.current.emit(ACTIONS.TERMINAL_RUN, { roomId, language, code });
   }
 
