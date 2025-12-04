@@ -341,16 +341,20 @@ io.on("connection", (socket) => {
       // helper to emit output back only to the socket that requested the run
       // so multiple users can run code concurrently without interfering
       function emitOut(payload) {
+        console.log("emitOut called with payload:", payload);
         io.to(socket.id).emit(ACTIONS.TERMINAL_OUTPUT, payload);
       }
 
       // If there's a compile step, run it first
       const execWithStream = (command, workdir) => {
+        console.log("execWithStream spawning:", command, "in", workdir);
         const proc = spawn(command, { cwd: workdir, shell: true });
         proc.stdout.on("data", (chunk) => {
+          console.log("stdout chunk:", chunk.toString());
           emitOut({ output: chunk.toString(), isError: false });
         });
         proc.stderr.on("data", (chunk) => {
+          console.log("stderr chunk:", chunk.toString());
           emitOut({ output: chunk.toString(), isError: true });
         });
         return proc;
