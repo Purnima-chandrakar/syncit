@@ -382,7 +382,27 @@ io.on("connection", (socket) => {
           } catch (e) {}
         }, 15 * 1000); // 15s
 
-        proc.on("close", (code) => {
+        // Track when all streams have ended
+        let stdoutEnded = false;
+        let stderrEnded = false;
+
+        proc.stdout.on("end", () => {
+          stdoutEnded = true;
+          checkAllDone();
+        });
+
+        proc.stderr.on("end", () => {
+          stderrEnded = true;
+          checkAllDone();
+        });
+
+        const checkAllDone = () => {
+          if (stdoutEnded && stderrEnded) {
+            proc.on("close", handleClose);
+          }
+        };
+
+        const handleClose = (code) => {
           clearTimeout(killTimeout);
           emitOut({
             output: `\nProcess exited with code ${code}\n`,
@@ -393,7 +413,9 @@ io.on("connection", (socket) => {
           try {
             fs.rmSync(runDir, { recursive: true, force: true });
           } catch (e) {}
-        });
+        };
+
+        proc.on("close", handleClose);
       } else {
         // no proc (e.g., nothing to run)
         emitOut({
