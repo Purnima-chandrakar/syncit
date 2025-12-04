@@ -10,27 +10,48 @@ const Terminal = ({ socketRef, roomId, codeRef, personalCodeRef, source = 'share
   const outRef = useRef(null);
 
   useEffect(() => {
-    const socket = socketRef?.current;
-    if (!socket) return;
+    // The socketRef may be assigned after this component mounts (async init).
+    // Poll briefly for `socketRef.current` and attach the listener when available.
+    let intervalId = null;
+    let cleanupFn = null;
 
-    function handleOutput({ output: chunk, isError, done }) {
-      // Ensure each chunk ends with a newline
-      const safeChunk = chunk.endsWith("\n") ? chunk : chunk + "\n";
-      setOutput((prev) => prev + safeChunk);
-      if (done) setRunning(false);
-      // scroll
-      setTimeout(() => {
-        if (outRef.current)
-          outRef.current.scrollTop = outRef.current.scrollHeight;
-      }, 10);
+    const attach = () => {
+      const socket = socketRef?.current;
+      if (!socket) return false;
+
+      function handleOutput({ output: chunk, isError, done }) {
+        const safeChunk = chunk.endsWith("\n") ? chunk : chunk + "\n";
+        setOutput((prev) => prev + safeChunk);
+        if (done) setRunning(false);
+        setTimeout(() => {
+          if (outRef.current) outRef.current.scrollTop = outRef.current.scrollHeight;
+        }, 10);
+      }
+
+      socket.on(ACTIONS.TERMINAL_OUTPUT, handleOutput);
+      cleanupFn = () => {
+        try {
+          socket.off(ACTIONS.TERMINAL_OUTPUT, handleOutput);
+        } catch (e) {}
+      };
+      return true;
+    };
+
+    if (!attach()) {
+      // try every 150ms for up to ~5s
+      let attempts = 0;
+      intervalId = setInterval(() => {
+        attempts += 1;
+        if (attach() || attempts > 33) {
+          if (intervalId) clearInterval(intervalId);
+          intervalId = null;
+        }
+      }, 150);
     }
 
-    socket.on(ACTIONS.TERMINAL_OUTPUT, handleOutput);
-
     return () => {
-      try {
-        socket.off(ACTIONS.TERMINAL_OUTPUT, handleOutput);
-      } catch (e) {}
+      if (intervalId) clearInterval(intervalId);
+      if (cleanupFn) cleanupFn();
     };
   }, [socketRef]);
 
