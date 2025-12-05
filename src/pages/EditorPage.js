@@ -380,9 +380,26 @@ const EditorPage = () => {
               <button
                 className={`tabBtn ${activeTab === "shared" ? "active" : ""}`}
                 onClick={() => {
+                  // persist current visible content to its buffer before switching
+                  try {
+                    const current = editorComponentRef.current?.getValue?.() ?? displayRef.current ?? "";
+                    if (activeTabRef.current === "shared") {
+                      codeRef.current = current;
+                    } else {
+                      personalCodeRef.current = current;
+                      try {
+                        const key = `personal:${roomId}:${location.state?.username}`;
+                        sessionStorage.setItem(key, personalCodeRef.current);
+                      } catch (e) {}
+                    }
+                  } catch (e) {}
+
+                  // switch tab and update ref immediately to avoid stale closures
                   setActiveTab("shared");
-                  // Use displayRef if it matches shared code, otherwise use codeRef
-                  let target = codeRef.current || "";
+                  activeTabRef.current = "shared";
+
+                  // load the shared buffer into the editor
+                  let target = codeRef.current ?? "";
                   if (editorComponentRef.current?.setValue) {
                     editorComponentRef.current.setValue(target);
                     displayRef.current = target;
@@ -394,9 +411,26 @@ const EditorPage = () => {
               <button
                 className={`tabBtn ${activeTab === "personal" ? "active" : ""}`}
                 onClick={() => {
+                  // persist current visible content to its buffer before switching
+                  try {
+                    const current = editorComponentRef.current?.getValue?.() ?? displayRef.current ?? "";
+                    if (activeTabRef.current === "shared") {
+                      codeRef.current = current;
+                    } else {
+                      personalCodeRef.current = current;
+                      try {
+                        const key = `personal:${roomId}:${location.state?.username}`;
+                        sessionStorage.setItem(key, personalCodeRef.current);
+                      } catch (e) {}
+                    }
+                  } catch (e) {}
+
+                  // switch tab and update ref immediately to avoid stale closures
                   setActiveTab("personal");
-                  // Use personalCodeRef for personal tab
-                  let target = personalCodeRef.current || "";
+                  activeTabRef.current = "personal";
+
+                  // load the personal buffer into the editor
+                  let target = personalCodeRef.current ?? "";
                   if (editorComponentRef.current?.setValue) {
                     editorComponentRef.current.setValue(target);
                     displayRef.current = target;

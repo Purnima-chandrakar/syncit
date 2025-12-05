@@ -30,6 +30,13 @@ const Editor = forwardRef(
           editorRef.current.setValue(value);
         }
       },
+      getValue: () => {
+        try {
+          return editorRef.current ? editorRef.current.getValue() : "";
+        } catch (e) {
+          return "";
+        }
+      },
     }));
 
     // This effect initializes CodeMirror once on mount.
