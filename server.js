@@ -156,6 +156,8 @@ const userSocketMap = {};
 const roomState = {};
 // Map socket.id -> currently running child process (for sending stdin)
 const runningProcs = new Map();
+// Map socket.id -> persistent venv path for that connection (created once, reused across runs)
+const socketVenvs = new Map();
 function getAllConnectedClients(roomId) {
   // Map
   return Array.from(io.sockets.adapter.rooms.get(roomId) || []).map(
@@ -372,47 +374,53 @@ io.on("connection", (socket) => {
         });
       };
 
-      // If Python requirements were declared, attempt pip install. If the
-      // environment is externally-managed (PEP 668) try creating a venv and
-      // installing into it, then use that venv's python to run the code.
+      // If Python requirements were declared, attempt pip install using persistent venv per socket.
+      // The venv is created once per connection and reused for all subsequent runs.
       let pythonExecPath = process.env.PYTHON_CMD || "python"; // command used to invoke python
-      let venvCreated = false;
       if (pythonReqMatch) {
         const pkgs = pythonReqMatch[1].trim();
         if (pkgs.length > 0) {
           emitOut({ output: `Installing Python requirements: ${pkgs}\n`, isError: false });
-          // First try normal pip install
-          const pyCmd = process.env.PYTHON_CMD || "python";
-          let ok = await runInstall(`${pyCmd} -m pip install --no-cache-dir ${pkgs}`);
-          if (!ok) {
-            // Try venv fallback (Linux/Unix and Windows differ)
-            try {
-              if (os.platform() === 'win32') {
-                // Windows: create venv and install using its python
-                emitOut({ output: `Falling back to virtualenv install (Windows)...\n`, isError: false });
-                ok = await runInstall(`${pyCmd} -m venv venv && venv\\Scripts\\python.exe -m pip install --no-cache-dir ${pkgs}`);
-                if (ok) {
-                  venvCreated = true;
-                  pythonExecPath = path.join('.', 'venv', 'Scripts', 'python.exe');
-                }
-              } else {
-                emitOut({ output: `Falling back to virtualenv install...\n`, isError: false });
-                ok = await runInstall(`${pyCmd} -m venv venv && ./venv/bin/python -m pip install --no-cache-dir ${pkgs}`);
-                if (ok) {
-                  venvCreated = true;
-                  pythonExecPath = path.join('.', 'venv', 'bin', 'python');
-                }
+
+          // Check if this socket already has a persistent venv
+          let venvPath = socketVenvs.get(socket.id);
+          if (!venvPath) {
+            // Create a persistent venv in a fixed location per socket
+            venvPath = path.join(tmpBase, `venv_${socket.id}`);
+            socketVenvs.set(socket.id, venvPath);
+
+            // Only create venv if it doesn't already exist
+            if (!fs.existsSync(venvPath)) {
+              emitOut({ output: `Creating persistent virtualenv...\n`, isError: false });
+              const pyCmd = process.env.PYTHON_CMD || "python";
+              const createVenvCmd = os.platform() === 'win32'
+                ? `${pyCmd} -m venv "${venvPath}"`
+                : `${pyCmd} -m venv "${venvPath}"`;
+              const venvOk = await runInstall(createVenvCmd);
+              if (!venvOk) {
+                emitOut({ output: `\nFailed to create virtualenv.\n`, isError: true, done: true });
+                socketVenvs.delete(socket.id);
+                try { fs.rmSync(runDir, { recursive: true, force: true }); } catch (e) {}
+                return;
               }
-            } catch (e) {
-              ok = false;
             }
           }
 
-          if (!ok) {
-            emitOut({ output: `\nFailed to install Python packages.\n`, isError: true, done: true });
+          // Determine venv python binary path
+          const venvPython = os.platform() === 'win32'
+            ? path.join(venvPath, 'Scripts', 'python.exe')
+            : path.join(venvPath, 'bin', 'python');
+
+          // Install packages into the persistent venv
+          const installCmd = `"${venvPython}" -m pip install --no-cache-dir ${pkgs}`;
+          const installOk = await runInstall(installCmd);
+          if (!installOk) {
+            emitOut({ output: `\nFailed to install packages into venv.\n`, isError: true, done: true });
             try { fs.rmSync(runDir, { recursive: true, force: true }); } catch (e) {}
             return;
           }
+
+          pythonExecPath = venvPython;
         }
       }
 
@@ -459,9 +467,9 @@ io.on("connection", (socket) => {
         await new Promise((res) => proc.on("close", res));
       }
 
-      // If we created a Python venv, ensure we use its python binary
-      if ((language || "").toLowerCase() === 'python' && venvCreated) {
-        runCmd = `${pythonExecPath} "${filename}"`;
+      // Ensure Python runs use the persistent venv if available
+      if ((language || "").toLowerCase() === 'python' && pythonExecPath !== (process.env.PYTHON_CMD || "python")) {
+        runCmd = `"${pythonExecPath}" "${filename}"`;
       }
 
       // Decide how to run
@@ -644,6 +652,21 @@ io.on("connection", (socket) => {
       });
     });
     delete userSocketMap[socket.id];
+    
+    // Clean up persistent venv for this socket when disconnecting
+    const venvPath = socketVenvs.get(socket.id);
+    if (venvPath) {
+      socketVenvs.delete(socket.id);
+      try {
+        fs.rmSync(venvPath, { recursive: true, force: true });
+      } catch (e) {
+        // ignore cleanup errors
+      }
+    }
+    
+    // Clean up any running processes for this socket
+    try { runningProcs.delete(socket.id); } catch (e) {}
+    
     socket.leave();
   });
 });
