@@ -145,7 +145,10 @@ const EditorPage = () => {
       try {
         const key = `personal:${roomId}:${location.state?.username}`;
         const saved = sessionStorage.getItem(key);
-        if (saved) personalCodeRef.current = saved;
+        if (saved) {
+          personalCodeRef.current = saved;
+          displayRef.current = saved; // also set display so it shows on tab switch
+        }
       } catch (e) {}
 
       // initial connect
@@ -378,11 +381,9 @@ const EditorPage = () => {
                 className={`tabBtn ${activeTab === "shared" ? "active" : ""}`}
                 onClick={() => {
                   setActiveTab("shared");
-                  const target = codeRef.current || "";
-                  if (
-                    editorComponentRef.current?.setValue &&
-                    displayRef.current !== target
-                  ) {
+                  // Use displayRef if it matches shared code, otherwise use codeRef
+                  let target = codeRef.current || "";
+                  if (editorComponentRef.current?.setValue) {
                     editorComponentRef.current.setValue(target);
                     displayRef.current = target;
                   }
@@ -394,11 +395,9 @@ const EditorPage = () => {
                 className={`tabBtn ${activeTab === "personal" ? "active" : ""}`}
                 onClick={() => {
                   setActiveTab("personal");
-                  const target = personalCodeRef.current || "";
-                  if (
-                    editorComponentRef.current?.setValue &&
-                    displayRef.current !== target
-                  ) {
+                  // Use personalCodeRef for personal tab
+                  let target = personalCodeRef.current || "";
+                  if (editorComponentRef.current?.setValue) {
                     editorComponentRef.current.setValue(target);
                     displayRef.current = target;
                   }
