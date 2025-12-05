@@ -339,6 +339,62 @@ io.on("connection", (socket) => {
       const filePath = path.join(runDir, filename);
       fs.writeFileSync(filePath, code || "");
 
+      // Detect runtime dependency hints in the submitted code.
+      // For Python: a top-line comment like `# requirements: pkg1 pkg2==1.2`
+      // For JS: a top-line comment like `// dependencies: pkg1 pkg2`
+      const pythonReqMatch = (code || "").match(/^[ \t]*#\s*requirements\s*:\s*(.+)$/im);
+      const jsDepMatch = (code || "").match(/^[ \t]*\/\/\s*dependencies\s*:\s*(.+)$/im);
+
+      // Helper to run install commands and stream output
+      const runInstall = (command) => {
+        return new Promise((resolve) => {
+          try {
+            const inst = spawn(command, { cwd: runDir, shell: true });
+            inst.stdout.on("data", (c) => emitOut({ output: c.toString(), isError: false }));
+            inst.stderr.on("data", (c) => emitOut({ output: c.toString(), isError: true }));
+            const to = setTimeout(() => {
+              try { inst.kill(); emitOut({ output: "\nInstall timed out.\n", isError: true }); } catch (e) {}
+              resolve(false);
+            }, 60 * 1000); // 60s install timeout
+            inst.on("close", (code) => { clearTimeout(to); resolve(code === 0); });
+          } catch (e) { emitOut({ output: `Install failed: ${String(e)}\n`, isError: true }); resolve(false); }
+        });
+      };
+
+      // If Python requirements were declared, attempt pip install
+      if (pythonReqMatch) {
+        const pkgs = pythonReqMatch[1].trim();
+        if (pkgs.length > 0) {
+          emitOut({ output: `Installing Python requirements: ${pkgs}\n`, isError: false });
+          // prefer running pip via the same python binary: `python -m pip install ...`
+          const pyCmd = process.env.PYTHON_CMD || "python";
+          const ok = await runInstall(`${pyCmd} -m pip install --no-cache-dir ${pkgs}`);
+          if (!ok) {
+            emitOut({ output: `\nFailed to install Python packages.\n`, isError: true, done: true });
+            try { fs.rmSync(runDir, { recursive: true, force: true }); } catch (e) {}
+            return;
+          }
+        }
+      }
+
+      // If JS dependencies were declared, create a minimal package.json and npm install
+      if (jsDepMatch) {
+        const pkgs = jsDepMatch[1].trim();
+        if (pkgs.length > 0) {
+          emitOut({ output: `Installing JS dependencies: ${pkgs}\n`, isError: false });
+          // write a minimal package.json so npm install works
+          try {
+            fs.writeFileSync(path.join(runDir, 'package.json'), JSON.stringify({ name: 'temp-run', version: '1.0.0' }));
+          } catch (e) {}
+          const ok = await runInstall(`npm install ${pkgs} --no-audit --no-fund`);
+          if (!ok) {
+            emitOut({ output: `\nFailed to install JS packages.\n`, isError: true, done: true });
+            try { fs.rmSync(runDir, { recursive: true, force: true }); } catch (e) {}
+            return;
+          }
+        }
+      }
+
       // helper to emit output back only to the socket that requested the run
       // so multiple users can run code concurrently without interfering
       function emitOut(payload) {
