@@ -336,14 +336,25 @@ io.on("connection", (socket) => {
           break;
       }
 
-      const filePath = path.join(runDir, filename);
-      fs.writeFileSync(filePath, code || "");
+      // Detect runtime dependency hints in the submitted code and strip them
+      // before saving/executing so interpreters don't try to run the header.
+      // Supported header formats (top of file):
+      //   Python:   `# requirements: pkg1 pkg2==1.2`  or `requirements: pkg1 pkg2`
+      //   JS:       `// dependencies: pkg1 pkg2`      or `dependencies: pkg1 pkg2`
+      const pythonReqMatch = (code || "").match(/^[ \t]*#?\s*requirements\s*:\s*(.+)$/im);
+      const jsDepMatch = (code || "").match(/^[ \t]*\/\/??\s*dependencies\s*:\s*(.+)$/im);
 
-      // Detect runtime dependency hints in the submitted code.
-      // For Python: a top-line comment like `# requirements: pkg1 pkg2==1.2`
-      // For JS: a top-line comment like `// dependencies: pkg1 pkg2`
-      const pythonReqMatch = (code || "").match(/^[ \t]*#\s*requirements\s*:\s*(.+)$/im);
-      const jsDepMatch = (code || "").match(/^[ \t]*\/\/\s*dependencies\s*:\s*(.+)$/im);
+      // Remove header lines (if present) so they are not part of the executed file
+      let cleanedCode = code || "";
+      if (pythonReqMatch) {
+        cleanedCode = cleanedCode.replace(/^[ \t]*#?\s*requirements\s*:\s*.*$/im, "");
+      }
+      if (jsDepMatch) {
+        cleanedCode = cleanedCode.replace(/^[ \t]*\/\/??\s*dependencies\s*:\s*.*$/im, "");
+      }
+
+      const filePath = path.join(runDir, filename);
+      fs.writeFileSync(filePath, cleanedCode || "");
 
       // Helper to run install commands and stream output
       const runInstall = (command) => {
