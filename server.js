@@ -372,14 +372,42 @@ io.on("connection", (socket) => {
         });
       };
 
-      // If Python requirements were declared, attempt pip install
+      // If Python requirements were declared, attempt pip install. If the
+      // environment is externally-managed (PEP 668) try creating a venv and
+      // installing into it, then use that venv's python to run the code.
+      let pythonExecPath = process.env.PYTHON_CMD || "python"; // command used to invoke python
+      let venvCreated = false;
       if (pythonReqMatch) {
         const pkgs = pythonReqMatch[1].trim();
         if (pkgs.length > 0) {
           emitOut({ output: `Installing Python requirements: ${pkgs}\n`, isError: false });
-          // prefer running pip via the same python binary: `python -m pip install ...`
+          // First try normal pip install
           const pyCmd = process.env.PYTHON_CMD || "python";
-          const ok = await runInstall(`${pyCmd} -m pip install --no-cache-dir ${pkgs}`);
+          let ok = await runInstall(`${pyCmd} -m pip install --no-cache-dir ${pkgs}`);
+          if (!ok) {
+            // Try venv fallback (Linux/Unix and Windows differ)
+            try {
+              if (os.platform() === 'win32') {
+                // Windows: create venv and install using its python
+                emitOut({ output: `Falling back to virtualenv install (Windows)...\n`, isError: false });
+                ok = await runInstall(`${pyCmd} -m venv venv && venv\\Scripts\\python.exe -m pip install --no-cache-dir ${pkgs}`);
+                if (ok) {
+                  venvCreated = true;
+                  pythonExecPath = path.join('.', 'venv', 'Scripts', 'python.exe');
+                }
+              } else {
+                emitOut({ output: `Falling back to virtualenv install...\n`, isError: false });
+                ok = await runInstall(`${pyCmd} -m venv venv && ./venv/bin/python -m pip install --no-cache-dir ${pkgs}`);
+                if (ok) {
+                  venvCreated = true;
+                  pythonExecPath = path.join('.', 'venv', 'bin', 'python');
+                }
+              }
+            } catch (e) {
+              ok = false;
+            }
+          }
+
           if (!ok) {
             emitOut({ output: `\nFailed to install Python packages.\n`, isError: true, done: true });
             try { fs.rmSync(runDir, { recursive: true, force: true }); } catch (e) {}
@@ -429,6 +457,11 @@ io.on("connection", (socket) => {
         emitOut({ output: `Compiling with: ${compileCmd}\n`, isError: false });
         proc = execWithStream(compileCmd, runDir);
         await new Promise((res) => proc.on("close", res));
+      }
+
+      // If we created a Python venv, ensure we use its python binary
+      if ((language || "").toLowerCase() === 'python' && venvCreated) {
+        runCmd = `${pythonExecPath} "${filename}"`;
       }
 
       // Decide how to run
