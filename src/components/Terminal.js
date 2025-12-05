@@ -7,6 +7,7 @@ const Terminal = ({ socketRef, roomId, codeRef, personalCodeRef, source = 'share
   const [language, setLanguage] = useState("javascript");
   const [output, setOutput] = useState("");
   const [running, setRunning] = useState(false);
+  const [inputValue, setInputValue] = useState("");
   const outRef = useRef(null);
 
   useEffect(() => {
@@ -103,6 +104,26 @@ const Terminal = ({ socketRef, roomId, codeRef, personalCodeRef, source = 'share
         >
           Clear
         </button>
+        <input
+          className="termInput"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (!running) return;
+              const toSend = inputValue || "\n";
+              try {
+                socketRef?.current?.emit && socketRef.current.emit(ACTIONS.TERMINAL_INPUT, { input: toSend + (toSend.endsWith("\n") ? "" : "\n") });
+                setOutput((prev) => prev + `> ${inputValue}\n`);
+              } catch (err) {}
+              setInputValue("");
+            }
+          }}
+          placeholder={running ? "Type input and press Enter" : "Run code to enable input"}
+          disabled={!running}
+          style={{ marginLeft: 8, padding: '6px 8px', flex: '0 0 240px', background: '#111', color: '#eee', border: '1px solid #333', borderRadius: 4 }}
+        />
       </div>
       <div
         ref={outRef}

@@ -15,6 +15,7 @@ const ACTIONS = {
   // terminal
   TERMINAL_RUN: "terminal-run",
   TERMINAL_OUTPUT: "terminal-output",
+  TERMINAL_INPUT: "terminal-input",
 
   // per-user permissions and raise-hand
   SET_USER_PERMISSION: "set-user-permission", // client -> server (admin only)

@@ -154,6 +154,8 @@ const userSocketMap = {};
 // Track per-room state: admin socketId, per-user edit permissions, and raised hands
 // roomState[roomId] = { adminId, permissions: { socketId: boolean }, hands: Set<socketId>, activeEditor: socketId|null, typingTimeout: NodeJS.Timeout|null }
 const roomState = {};
+// Map socket.id -> currently running child process (for sending stdin)
+const runningProcs = new Map();
 function getAllConnectedClients(roomId) {
   // Map
   return Array.from(io.sockets.adapter.rooms.get(roomId) || []).map(
@@ -366,6 +368,8 @@ io.on("connection", (socket) => {
       if (runCmd) {
         emitOut({ output: `Running: ${runCmd}\n`, isError: false });
         proc = execWithStream(runCmd, runDir);
+        // track running proc for this socket so clients can send stdin
+        try { runningProcs.set(socket.id, proc); } catch (e) {}
       } else {
         // if no runCmd (e.g., unknown language), treat code as a shell command or display message
         const trimmed = (code || "").trim();
@@ -380,6 +384,7 @@ io.on("connection", (socket) => {
             isError: false,
           });
           proc = execWithStream(trimmed, runDir);
+          try { runningProcs.set(socket.id, proc); } catch (e) {}
         }
       }
 
@@ -414,6 +419,9 @@ io.on("connection", (socket) => {
 
         const handleClose = (code) => {
           clearTimeout(killTimeout);
+          // remove running proc reference for this socket
+          try { runningProcs.delete(socket.id); } catch (e) {}
+
           emitOut({
             output: `\nProcess exited with code ${code}\n`,
             isError: false,
@@ -450,6 +458,28 @@ io.on("connection", (socket) => {
   socket.on(ACTIONS.SYNC_CODE, ({ socketId, code }) => {
     // Send as a shared code-change payload to the specific socket
     io.to(socketId).emit(ACTIONS.CODE_CHANGE, { code, mode: 'shared' });
+  });
+
+  // Terminal stdin input from client: write to running process stdin for this socket
+  socket.on(ACTIONS.TERMINAL_INPUT, ({ input }) => {
+    try {
+      const proc = runningProcs.get(socket.id);
+      if (!proc || !proc.stdin) {
+        io.to(socket.id).emit(ACTIONS.TERMINAL_OUTPUT, {
+          output: "No running process to send input to.\n",
+          isError: true,
+        });
+        return;
+      }
+      // Ensure string and include newline if caller didn't
+      const toWrite = typeof input === 'string' ? input : String(input || '');
+      proc.stdin.write(toWrite);
+    } catch (err) {
+      io.to(socket.id).emit(ACTIONS.TERMINAL_OUTPUT, {
+        output: `Failed to write to process stdin: ${String(err)}\n`,
+        isError: true,
+      });
+    }
   });
 
   // Admin kick user { roomId, targetSocketId }
