@@ -158,6 +158,8 @@ const roomState = {};
 const runningProcs = new Map();
 // Map socket.id -> persistent venv path for that connection (created once, reused across runs)
 const socketVenvs = new Map();
+// Map roomId -> shared code content (persisted per room)
+const roomCodeState = new Map();
 function getAllConnectedClients(roomId) {
   // Map
   return Array.from(io.sockets.adapter.rooms.get(roomId) || []).map(
@@ -180,6 +182,11 @@ io.on("connection", (socket) => {
     // initialize room state if first join
     if (!roomState[roomId]) {
       roomState[roomId] = { adminId: socket.id, permissions: {}, hands: new Set(), activeEditor: null, typingTimeout: null };
+    }
+
+    // initialize shared code storage if first join
+    if (!roomCodeState.has(roomId)) {
+      roomCodeState.set(roomId, "");
     }
 
     const room = roomState[roomId];
@@ -205,6 +212,13 @@ io.on("connection", (socket) => {
       permissions: room.permissions,
       hands: Array.from(room.hands),
     });
+
+    // send stored shared code to the joining user
+    const storedCode = roomCodeState.get(roomId) || "";
+    io.to(socket.id).emit(ACTIONS.CODE_CHANGE, {
+      code: storedCode,
+      mode: 'shared',
+    });
   });
 
   socket.on(ACTIONS.CODE_CHANGE, ({ roomId, code, mode }) => {
@@ -219,6 +233,12 @@ io.on("connection", (socket) => {
         return;
       }
     }
+
+    // update server-side shared code storage
+    if (typeof code === 'string') {
+      roomCodeState.set(roomId, code);
+    }
+
     socket.in(roomId).emit(ACTIONS.CODE_CHANGE, { code, mode: 'shared' });
   });
 
@@ -650,6 +670,13 @@ io.on("connection", (socket) => {
         socketId: socket.id,
         username: userSocketMap[socket.id],
       });
+
+      // clean up room code state if room is now empty
+      const remaining = getAllConnectedClients(roomId);
+      if (remaining.length === 0) {
+        roomState[roomId] = null;
+        roomCodeState.delete(roomId);
+      }
     });
     delete userSocketMap[socket.id];
     
