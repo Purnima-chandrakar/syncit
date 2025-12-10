@@ -315,3 +315,182 @@ footer a:hover {
     border-radius: 6px;
 }
 .tabBtn.active { background: #3a3e52; border-color: #4a516a; }
+
+/* Analytics tab */
+.analyticsWrap {
+    background: #11131a;
+    border: 1px solid #1f2433;
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 4px;
+    color: #e6e6e6;
+    height: calc(100vh - 120px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.analyticsHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 20px;
+    flex-shrink: 0;
+    gap: 16px;
+}
+.analyticsTitle {
+    font-weight: 700;
+    font-size: 20px;
+    margin-bottom: 4px;
+}
+.analyticsSubtitle {
+    color: #9aa4b5;
+    font-size: 13px;
+    margin-top: 2px;
+}
+.analyticsToggle {
+    background: #2d2f3b;
+    color: #e6e6e6;
+    border: 1px solid #3a3e52;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.analyticsToggle:hover {
+    background: #3a3e52;
+    border-color: #4a516a;
+}
+.analyticsToggle.active {
+    background: #e74c3c;
+    border-color: #c0392b;
+    color: #fff;
+}
+.analyticsToggle.active:hover {
+    background: #c0392b;
+}
+.analyticsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+    overflow-y: auto;
+    flex: 1;
+    padding-right: 8px;
+}
+.analyticsGrid::-webkit-scrollbar {
+    width: 8px;
+}
+.analyticsGrid::-webkit-scrollbar-track {
+    background: #1a1d26;
+    border-radius: 4px;
+}
+.analyticsGrid::-webkit-scrollbar-thumb {
+    background: #3a3e52;
+    border-radius: 4px;
+}
+.analyticsGrid::-webkit-scrollbar-thumb:hover {
+    background: #4a516a;
+}
+.analyticsCard {
+    background: #1b1f2b;
+    border: 1px solid #283049;
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 180px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+.analyticsCard:hover {
+    border-color: #3a4560;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.analyticsCardHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.analyticsName {
+    font-weight: 700;
+    font-size: 16px;
+    color: #e6e6e6;
+    flex: 1;
+    min-width: 0;
+}
+.analyticsMeta {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 13px;
+    color: #cdd4e4;
+    flex: 1;
+}
+.analyticsMeta > div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    line-height: 1.5;
+}
+.muted { color: #8b93a7; }
+.statusChip {
+    padding: 4px 12px;
+    border-radius: 16px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: capitalize;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.statusChip.active { background: #2ecc71; color: #0b2b1a; }
+.statusChip.idle { background: #3a3e52; color: #dce3ff; }
+.statusChip.stuck { background: #f1c40f; color: #1b1604; }
+.statusChip.error { background: #e74c3c; color: #fff; }
+.statusChip.unknown { background: #2d2f3b; color: #cdd4e4; }
+.errorBox {
+    margin-top: 12px;
+    padding: 12px;
+    background: rgba(231, 76, 60, 0.1);
+    border: 1px solid rgba(231, 76, 60, 0.3);
+    border-radius: 8px;
+    max-height: 200px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.errorBoxHeader {
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #e74c3c;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+.errorBoxContent {
+    font-size: 12px;
+    color: #ffcccc;
+    word-break: break-word;
+    white-space: pre-wrap;
+    overflow-y: auto;
+    flex: 1;
+    line-height: 1.5;
+    padding-right: 4px;
+}
+.errorBoxContent::-webkit-scrollbar {
+    width: 6px;
+}
+.errorBoxContent::-webkit-scrollbar-track {
+    background: rgba(231, 76, 60, 0.1);
+    border-radius: 3px;
+}
+.errorBoxContent::-webkit-scrollbar-thumb {
+    background: rgba(231, 76, 60, 0.5);
+    border-radius: 3px;
+}
+.errorBoxContent::-webkit-scrollbar-thumb:hover {
+    background: rgba(231, 76, 60, 0.7);
+}

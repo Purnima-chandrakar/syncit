@@ -22,6 +22,10 @@ const ACTIONS = {
   PERMISSION_UPDATE: "permission-update", // server -> clients (broadcast current permissions state)
   RAISE_HAND: "raise-hand", // client -> server (non-admin typically)
 
+  // personal workspace activity + analytics
+  PERSONAL_ACTIVITY: "personal-activity", // client -> server (personal tab edits)
+  PROGRESS_UPDATE: "progress-update", // server -> clients (live activity/errors)
+
   // active editor indicator
   TYPING: "typing", // client -> server (shared tab only)
   ACTIVE_EDITOR: "active-editor", // server -> clients (who is currently editing)

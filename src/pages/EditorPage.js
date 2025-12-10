@@ -19,10 +19,12 @@ const EditorPage = () => {
   const [permissions, setPermissions] = useState({}); // {socketId: boolean}
   const [hands, setHands] = useState([]); // [socketId]
   const [activeEditorId, setActiveEditorId] = useState(null);
+  const [progressMap, setProgressMap] = useState({}); // socketId -> analytics data
+  const [showErrors, setShowErrors] = useState(false); // toggle between error view and activity view
   const socketRef = useRef(null);
   const codeRef = useRef(""); // shared buffer
   const personalCodeRef = useRef(""); // personal buffer
-  const [activeTab, setActiveTab] = useState("shared"); // 'shared' | 'personal'
+  const [activeTab, setActiveTab] = useState("shared"); // 'shared' | 'personal' | 'analytics'
   const activeTabRef = useRef("shared"); // track latest tab in event handlers
   const displayRef = useRef(""); // what is currently shown in the editor UI
   const editorComponentRef = useRef(null);
@@ -63,6 +65,7 @@ const EditorPage = () => {
         socketRef.current.off(ACTIONS.USER_KICKED);
         socketRef.current.off('kick-success');
         socketRef.current.off('kick-error');
+        socketRef.current.off(ACTIONS.PROGRESS_UPDATE);
 
         // joined
         socketRef.current.on(
@@ -122,6 +125,15 @@ const EditorPage = () => {
         // who is actively editing (shared)
         socketRef.current.on(ACTIONS.ACTIVE_EDITOR, ({ socketId }) => {
           setActiveEditorId(socketId || null);
+        });
+
+        // live analytics updates
+        socketRef.current.on(ACTIONS.PROGRESS_UPDATE, ({ clients }) => {
+          const next = {};
+          (clients || []).forEach((c) => {
+            next[c.socketId] = c;
+          });
+          setProgressMap(next);
         });
 
         // centralized shared code updates
@@ -204,6 +216,7 @@ const EditorPage = () => {
         socketRef.current.off(ACTIONS.USER_KICKED);
         socketRef.current.off('kick-success');
         socketRef.current.off('kick-error');
+        socketRef.current.off(ACTIONS.PROGRESS_UPDATE);
         socketRef.current.disconnect();
       }
     };
@@ -252,6 +265,61 @@ const EditorPage = () => {
   const setHand = (raised) => {
     if (!socketRef.current) return;
     socketRef.current.emit(ACTIONS.RAISE_HAND, { roomId, raised });
+  };
+
+  const persistCurrentBuffer = () => {
+    try {
+      const current =
+        editorComponentRef.current?.getValue?.() ?? displayRef.current ?? "";
+      if (activeTabRef.current === "shared") {
+        codeRef.current = current;
+      } else if (activeTabRef.current === "personal") {
+        personalCodeRef.current = current;
+        try {
+          const key = `personal:${roomId}:${location.state?.username}`;
+          sessionStorage.setItem(key, personalCodeRef.current);
+        } catch (e) {}
+      }
+    } catch (e) {}
+  };
+
+  const switchTab = (target) => {
+    if (target === activeTabRef.current) return;
+    // persist before switching away
+    persistCurrentBuffer();
+    setActiveTab(target);
+    activeTabRef.current = target;
+
+    if (target === "shared") {
+      const targetValue = codeRef.current ?? "";
+      if (editorComponentRef.current?.setValue) {
+        editorComponentRef.current.setValue(targetValue);
+        displayRef.current = targetValue;
+      }
+    } else if (target === "personal") {
+      const targetValue = personalCodeRef.current ?? "";
+      if (editorComponentRef.current?.setValue) {
+        editorComponentRef.current.setValue(targetValue);
+        displayRef.current = targetValue;
+      }
+    }
+  };
+
+  const formatAgo = (timestamp) => {
+    if (!timestamp) return "no activity yet";
+    const diff = Math.max(0, Date.now() - timestamp);
+    if (diff < 90 * 1000) return `${Math.floor(diff / 1000)}s ago`;
+    const mins = Math.round(diff / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.round(mins / 60);
+    return `${hrs}h ago`;
+  };
+
+  // Check if error is still recent (within 5 minutes, matching server threshold)
+  const isErrorRecent = (lastErrorTime) => {
+    if (!lastErrorTime) return false;
+    const ERROR_VISIBLE_MS = 5 * 60 * 1000; // 5 minutes
+    return Date.now() - lastErrorTime < ERROR_VISIBLE_MS;
   };
 
   // Save file handler (uses active tab)
@@ -379,119 +447,174 @@ const EditorPage = () => {
             <div className="editorTabs">
               <button
                 className={`tabBtn ${activeTab === "shared" ? "active" : ""}`}
-                onClick={() => {
-                  // persist current visible content to its buffer before switching
-                  try {
-                    const current = editorComponentRef.current?.getValue?.() ?? displayRef.current ?? "";
-                    if (activeTabRef.current === "shared") {
-                      codeRef.current = current;
-                    } else {
-                      personalCodeRef.current = current;
-                      try {
-                        const key = `personal:${roomId}:${location.state?.username}`;
-                        sessionStorage.setItem(key, personalCodeRef.current);
-                      } catch (e) {}
-                    }
-                  } catch (e) {}
-
-                  // switch tab and update ref immediately to avoid stale closures
-                  setActiveTab("shared");
-                  activeTabRef.current = "shared";
-
-                  // load the shared buffer into the editor
-                  let target = codeRef.current ?? "";
-                  if (editorComponentRef.current?.setValue) {
-                    editorComponentRef.current.setValue(target);
-                    displayRef.current = target;
-                  }
-                }}
+                onClick={() => switchTab("shared")}
               >
                 Shared
               </button>
               <button
                 className={`tabBtn ${activeTab === "personal" ? "active" : ""}`}
-                onClick={() => {
-                  // persist current visible content to its buffer before switching
-                  try {
-                    const current = editorComponentRef.current?.getValue?.() ?? displayRef.current ?? "";
-                    if (activeTabRef.current === "shared") {
-                      codeRef.current = current;
-                    } else {
-                      personalCodeRef.current = current;
-                      try {
-                        const key = `personal:${roomId}:${location.state?.username}`;
-                        sessionStorage.setItem(key, personalCodeRef.current);
-                      } catch (e) {}
-                    }
-                  } catch (e) {}
-
-                  // switch tab and update ref immediately to avoid stale closures
-                  setActiveTab("personal");
-                  activeTabRef.current = "personal";
-
-                  // load the personal buffer into the editor
-                  let target = personalCodeRef.current ?? "";
-                  if (editorComponentRef.current?.setValue) {
-                    editorComponentRef.current.setValue(target);
-                    displayRef.current = target;
-                  }
-                }}
+                onClick={() => switchTab("personal")}
               >
                 Personal 🔒
               </button>
+              {isAdmin && (
+                <button
+                  className={`tabBtn ${activeTab === "analytics" ? "active" : ""}`}
+                  onClick={() => switchTab("analytics")}
+                  title="Live student progress (admin only)"
+                >
+                  Analytics 📊
+                </button>
+              )}
             </div>
 
-            <Editor
-              ref={editorComponentRef}
-              socketRef={socketRef}
-              roomId={roomId}
-              onCodeChange={(code) => {
-                // keep display in sync with what user sees
-                displayRef.current = code;
-                if (activeTabRef.current === "shared") {
-                  codeRef.current = code;
-                } else {
-                  personalCodeRef.current = code;
-                  try {
-                    const key = `personal:${roomId}:${location.state?.username}`;
-                    sessionStorage.setItem(key, personalCodeRef.current);
-                  } catch (e) {}
-                }
-              }}
-              emitChanges={activeTab === "shared"}
-              disabled={(() => {
-                if (activeTab === "personal") return false; // always editable
-                if (!isHost && editingBlocked) return true; // legacy room-wide block
-                const myId = mySocketId;
-                if (!myId) return false;
-                const canEdit = permissions?.[myId] !== false; // default true
-                return !canEdit && !isAdmin;
-              })()}
-            />
-          </div>
-          <div style={{ display: "flex", gap: "10px", margin: "10px 0" }}>
-            <button className="btn saveBtn" onClick={handleSaveFile}>
-              Save File
-            </button>
-            <label className="btn openBtn" style={{ cursor: "pointer" }}>
-              Open File
-              <input
-                type="file"
-                accept=".js,.txt,.json,.py,.java,.cpp,.c,.md,.html,.css"
-                style={{ display: "none" }}
-                onChange={handleOpenFile}
+            <div style={{ display: activeTab === "analytics" ? "none" : "block" }}>
+              <Editor
+                ref={editorComponentRef}
+                socketRef={socketRef}
+                roomId={roomId}
+                onCodeChange={(code) => {
+                  // keep display in sync with what user sees
+                  displayRef.current = code;
+                  if (activeTabRef.current === "shared") {
+                    codeRef.current = code;
+                  } else if (activeTabRef.current === "personal") {
+                    personalCodeRef.current = code;
+                    try {
+                      const key = `personal:${roomId}:${location.state?.username}`;
+                      sessionStorage.setItem(key, personalCodeRef.current);
+                    } catch (e) {}
+                    // notify server for analytics when editing personal tab
+                    socketRef.current?.emit?.(ACTIONS.PERSONAL_ACTIVITY, { roomId });
+                  }
+                }}
+                emitChanges={activeTab === "shared"}
+                disabled={(() => {
+                  if (activeTab === "personal") return false; // always editable
+                  if (activeTab === "analytics") return true; // view-only
+                  if (!isHost && editingBlocked) return true; // legacy room-wide block
+                  const myId = mySocketId;
+                  if (!myId) return false;
+                  const canEdit = permissions?.[myId] !== false; // default true
+                  return !canEdit && !isAdmin;
+                })()}
               />
-            </label>
+            </div>
           </div>
-          <div style={{ flex: "0 0 auto" }}>
-            <Terminal
-              socketRef={socketRef}
-              roomId={roomId}
-              codeRef={codeRef}
-              personalCodeRef={personalCodeRef}
-              source={activeTab === "personal" ? "personal" : "shared"}
-            />
-          </div>
+          {activeTab !== "analytics" && (
+            <>
+              <div style={{ display: "flex", gap: "10px", margin: "10px 0" }}>
+                <button className="btn saveBtn" onClick={handleSaveFile}>
+                  Save File
+                </button>
+                <label className="btn openBtn" style={{ cursor: "pointer" }}>
+                  Open File
+                  <input
+                    type="file"
+                    accept=".js,.txt,.json,.py,.java,.cpp,.c,.md,.html,.css"
+                    style={{ display: "none" }}
+                    onChange={handleOpenFile}
+                  />
+                </label>
+              </div>
+              <div style={{ flex: "0 0 auto" }}>
+                <Terminal
+                  socketRef={socketRef}
+                  roomId={roomId}
+                  codeRef={codeRef}
+                  personalCodeRef={personalCodeRef}
+                  source={activeTab === "personal" ? "personal" : "shared"}
+                />
+              </div>
+            </>
+          )}
+          {activeTab === "analytics" && (
+            <div className="analyticsWrap">
+              <div className="analyticsHeader">
+                <div>
+                  <div className="analyticsTitle">Live student activity</div>
+                  <div className="analyticsSubtitle">
+                    {showErrors 
+                      ? "Showing error details for students with recent errors."
+                      : "Updates when someone types, goes idle (&gt;3m), or hits compile/runtime errors."}
+                  </div>
+                </div>
+                <button
+                  className={`analyticsToggle ${showErrors ? 'active' : ''}`}
+                  onClick={() => setShowErrors(!showErrors)}
+                  title={showErrors ? "Switch to activity view" : "Switch to error view"}
+                >
+                  {showErrors ? "📊 Show Activity" : "⚠️ Show Errors"}
+                </button>
+              </div>
+              <div className="analyticsGrid">
+                {(() => {
+                  const sorted = [...clients].sort((a, b) => {
+                    const aIsAdmin = a.socketId === adminId ? -1 : 0;
+                    const bIsAdmin = b.socketId === adminId ? -1 : 0;
+                    if (aIsAdmin !== bIsAdmin) return aIsAdmin - bIsAdmin;
+                    return (a.username || "").localeCompare(b.username || "");
+                  });
+                  return sorted.map((client) => {
+                    const info = progressMap?.[client.socketId] || {};
+                    const status = info.status || "unknown";
+                    const statusLabel = {
+                      active: "Active (typing)",
+                      idle: "Idle",
+                      stuck: "Stuck (no activity)",
+                      error: "Error while running code",
+                      unknown: "No activity yet",
+                    }[status] || status;
+                    const hasError = info.lastError && info.lastErrorTime;
+                    const hasRecentError = hasError && isErrorRecent(info.lastErrorTime);
+                    
+                    // In error view, only show students with recent errors (within 5 minutes)
+                    if (showErrors && !hasRecentError) {
+                      return null;
+                    }
+                    
+                    return (
+                      <div className="analyticsCard" key={client.socketId}>
+                        <div className="analyticsCardHeader">
+                          <div className="analyticsName">
+                            {client.username}
+                            {client.socketId === mySocketId && " (you)"}
+                            {client.socketId === adminId && " • Admin"}
+                          </div>
+                          <div className={`statusChip ${status}`}>
+                            {statusLabel}
+                          </div>
+                        </div>
+                        <div className="analyticsMeta">
+                          <div>
+                            <span className="muted">Last activity: </span>
+                            <span>{formatAgo(info.lastActivity)}</span>
+                          </div>
+                          <div>
+                            <span className="muted">Last event: </span>
+                            <span>{info.lastEvent || "—"}</span>
+                          </div>
+                          {showErrors && hasRecentError && (
+                            <div className="errorBox">
+                              <div className="errorBoxHeader">Last error:</div>
+                              <div className="errorBoxContent">
+                                {info.lastError}
+                              </div>
+                            </div>
+                          )}
+                          {!showErrors && hasRecentError && (
+                            <div style={{ marginTop: 8, fontSize: 12, color: '#e74c3c' }}>
+                              ⚠️ Has recent error (toggle to view)
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

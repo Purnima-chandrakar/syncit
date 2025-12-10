@@ -53,7 +53,7 @@ const JUDGE0_LANG_MAP = {
 
 // Helper to run code via Judge0 (self-hosted or hosted). Streams the final stdout/stderr
 // back to the requesting socket. Uses polling. Adjust timeouts as needed.
-async function runViaJudge0({ socket, runId, language, code }) {
+async function runViaJudge0({ socket, runId, language, code, onError }) {
   const emit = (payload) =>
     io.to(socket.id).emit(ACTIONS.TERMINAL_OUTPUT, payload);
   try {
@@ -107,7 +107,10 @@ async function runViaJudge0({ socket, runId, language, code }) {
 
       // If we have partial output, emit it (Judge0 typically returns full stdout/stderr when done)
       if (data.stdout) emit({ output: data.stdout, isError: false });
-      if (data.stderr) emit({ output: data.stderr, isError: true });
+      if (data.stderr) {
+        emit({ output: data.stderr, isError: true });
+        if (onError) onError(data.stderr);
+      }
 
       const statusId = data.status?.id || 0; // 1 = in queue, 2 = processing, >=3 finished
       if (statusId >= 3) {
@@ -137,6 +140,7 @@ async function runViaJudge0({ socket, runId, language, code }) {
       isError: true,
       done: true,
     });
+    if (onError) onError(err.message);
   }
 }
 const tmpBase = path.join(__dirname, "tmp_runs");
@@ -160,6 +164,92 @@ const runningProcs = new Map();
 const socketVenvs = new Map();
 // Map roomId -> shared code content (persisted per room)
 const roomCodeState = new Map();
+
+// Analytics thresholds
+const STUCK_THRESHOLD_MS = 3 * 60 * 1000; // 3 minutes of inactivity
+const ACTIVE_WINDOW_MS = 8 * 1000; // consider active if typing within last 8s
+const ERROR_VISIBLE_MS = 5 * 60 * 1000; // show recent errors for 5 minutes
+
+function ensureRoomState(roomId) {
+  if (!roomState[roomId]) {
+    roomState[roomId] = {
+      adminId: null,
+      permissions: {},
+      hands: new Set(),
+      activeEditor: null,
+      typingTimeout: null,
+      activity: {}, // socketId -> { lastActivity, lastEvent, lastError, lastErrorTime }
+      idleInterval: null,
+    };
+  }
+  // start idle interval for analytics if not already running
+  const room = roomState[roomId];
+  if (!room.idleInterval) {
+    room.idleInterval = setInterval(() => emitProgressUpdate(roomId), 60 * 1000);
+  }
+  return roomState[roomId];
+}
+
+function emitProgressUpdate(roomId) {
+  const room = roomState[roomId];
+  if (!room) return;
+  const now = Date.now();
+  const clients = getAllConnectedClients(roomId);
+  const enriched = clients.map((c) => {
+    const entry = room.activity?.[c.socketId] || {};
+    const lastActivity = entry.lastActivity || 0;
+    const idleMs = now - lastActivity;
+    const lastErrorTime = entry.lastErrorTime || 0;
+    const hasRecentError = lastErrorTime > 0 && now - lastErrorTime < ERROR_VISIBLE_MS;
+    const isActive = lastActivity > 0 && idleMs < ACTIVE_WINDOW_MS;
+    const isStuck = lastActivity > 0 && idleMs >= STUCK_THRESHOLD_MS;
+    let status = "idle";
+    if (hasRecentError) status = "error";
+    else if (isActive) status = "active";
+    else if (isStuck) status = "stuck";
+
+    return {
+      socketId: c.socketId,
+      username: c.username,
+      status,
+      lastActivity: lastActivity || null,
+      lastEvent: entry.lastEvent || null,
+      lastError: entry.lastError || null,
+      lastErrorTime: entry.lastErrorTime || null,
+    };
+  });
+  io.in(roomId).emit(ACTIONS.PROGRESS_UPDATE, {
+    roomId,
+    updatedAt: now,
+    clients: enriched,
+  });
+}
+
+function markActivity(roomId, socketId, lastEvent = "activity") {
+  const room = ensureRoomState(roomId);
+  const prev = room.activity?.[socketId] || {};
+  room.activity[socketId] = {
+    ...prev,
+    lastActivity: Date.now(),
+    lastEvent,
+  };
+  emitProgressUpdate(roomId);
+}
+
+function recordError(roomId, socketId, message = "Runtime/compile error") {
+  const room = ensureRoomState(roomId);
+  const now = Date.now();
+  const prev = room.activity?.[socketId] || {};
+  room.activity[socketId] = {
+    ...prev,
+    lastActivity: now,
+    lastEvent: "error",
+    lastError: message,
+    lastErrorTime: now,
+  };
+  emitProgressUpdate(roomId);
+}
+
 function getAllConnectedClients(roomId) {
   // Map
   return Array.from(io.sockets.adapter.rooms.get(roomId) || []).map(
@@ -179,17 +269,13 @@ io.on("connection", (socket) => {
     userSocketMap[socket.id] = username;
     socket.join(roomId);
 
-    // initialize room state if first join
-    if (!roomState[roomId]) {
-      roomState[roomId] = { adminId: socket.id, permissions: {}, hands: new Set(), activeEditor: null, typingTimeout: null };
-    }
+    const room = ensureRoomState(roomId);
+    if (!room.adminId) room.adminId = socket.id;
 
     // initialize shared code storage if first join
     if (!roomCodeState.has(roomId)) {
       roomCodeState.set(roomId, "");
     }
-
-    const room = roomState[roomId];
 
     // ensure permissions contains all clients; default true for admin, and true for others by default
     const currentClients = getAllConnectedClients(roomId);
@@ -219,11 +305,16 @@ io.on("connection", (socket) => {
       code: storedCode,
       mode: 'shared',
     });
+
+    // track initial activity for analytics
+    markActivity(roomId, socket.id, "joined");
   });
 
   socket.on(ACTIONS.CODE_CHANGE, ({ roomId, code, mode }) => {
     // Only propagate shared edits
     if (mode !== 'shared') return;
+
+    markActivity(roomId, socket.id, "shared-typing");
 
     const room = roomState[roomId];
     if (room) {
@@ -240,6 +331,11 @@ io.on("connection", (socket) => {
     }
 
     socket.in(roomId).emit(ACTIONS.CODE_CHANGE, { code, mode: 'shared' });
+  });
+
+  // Personal tab activity (no code broadcast, only analytics)
+  socket.on(ACTIONS.PERSONAL_ACTIVITY, ({ roomId }) => {
+    markActivity(roomId, socket.id, "personal-edit");
   });
 
   // Legacy room-wide block/unblock editing from host and broadcast to room
@@ -278,6 +374,8 @@ io.on("connection", (socket) => {
     const room = roomState[roomId];
     if (!room) return;
 
+    markActivity(roomId, socket.id, "shared-typing");
+
     // set current active editor and broadcast (only if changed)
     if (room.activeEditor !== socket.id) {
       room.activeEditor = socket.id;
@@ -303,7 +401,9 @@ io.on("connection", (socket) => {
 
   // Terminal run request: receive language and code, run on server and stream output
   socket.on(ACTIONS.TERMINAL_RUN, async ({ roomId, language, code }) => {
+    markActivity(roomId, socket.id, "run");
     const runId = uuidv4();
+    let runHadError = false;
     try {
       // If configured to use Judge0 (sandboxed runner), submit to Judge0 and return the streamed result.
       if (USE_JUDGE0) {
@@ -312,7 +412,16 @@ io.on("connection", (socket) => {
           output: `Run ${runId} starting (sandboxed)...\n`,
           isError: false,
         });
-        await runViaJudge0({ socket, runId, language, code });
+        await runViaJudge0({
+          socket,
+          runId,
+          language,
+          code,
+          onError: () => {
+            runHadError = true;
+          },
+        });
+        if (runHadError) recordError(roomId, socket.id, "Compile/runtime error");
         return;
       }
 
@@ -464,7 +573,12 @@ io.on("connection", (socket) => {
 
       // helper to emit output back only to the socket that requested the run
       // so multiple users can run code concurrently without interfering
+      let errorOutput = ""; // collect error messages
       function emitOut(payload) {
+        if (payload?.isError) {
+          runHadError = true;
+          errorOutput += payload.output || "";
+        }
         io.to(socket.id).emit(ACTIONS.TERMINAL_OUTPUT, payload);
       }
 
@@ -481,10 +595,23 @@ io.on("connection", (socket) => {
       };
 
       let proc = null;
+      let compileHadError = false;
       if (compileCmd) {
         emitOut({ output: `Compiling with: ${compileCmd}\n`, isError: false });
         proc = execWithStream(compileCmd, runDir);
-        await new Promise((res) => proc.on("close", res));
+        const compileExitCode = await new Promise((res) => {
+          proc.on("close", (code) => {
+            if (code !== 0) {
+              compileHadError = true;
+              runHadError = true;
+            }
+            res(code);
+          });
+        });
+        if (compileHadError) {
+          recordError(roomId, socket.id, `Compilation error: ${errorOutput.substring(0, 100)}`);
+          errorOutput = ""; // reset for runtime errors
+        }
       }
 
       // Ensure Python runs use the persistent venv if available
@@ -550,11 +677,22 @@ io.on("connection", (socket) => {
           // remove running proc reference for this socket
           try { runningProcs.delete(socket.id); } catch (e) {}
 
+          if (typeof code === "number" && code !== 0) {
+            runHadError = true;
+          }
+
           emitOut({
             output: `\nProcess exited with code ${code}\n`,
             isError: false,
             done: true,
           });
+          
+          // Record error if there was one (non-zero exit or stderr content)
+          if (runHadError) {
+            const errorMsg = errorOutput.trim() || `Process exited with code ${code}`;
+            recordError(roomId, socket.id, errorMsg.substring(0, 200));
+          }
+          
           // cleanup
           try {
             fs.rmSync(runDir, { recursive: true, force: true });
@@ -575,11 +713,14 @@ io.on("connection", (socket) => {
       }
     } catch (err) {
       // send error only to the requester
+      runHadError = true;
+      const errorMsg = String(err);
       io.to(socket.id).emit(ACTIONS.TERMINAL_OUTPUT, {
-        output: String(err),
+        output: errorMsg,
         isError: true,
         done: true,
       });
+      recordError(roomId, socket.id, errorMsg.substring(0, 200));
     }
   });
 
@@ -643,6 +784,7 @@ io.on("connection", (socket) => {
         // remove from permissions and hands
         delete room.permissions[socket.id];
         room.hands.delete(socket.id);
+        if (room.activity) delete room.activity[socket.id];
         // if admin leaves, pick next client as admin
         if (room.adminId === socket.id) {
           const remaining = getAllConnectedClients(roomId).filter(c => c.socketId !== socket.id);
@@ -674,6 +816,9 @@ io.on("connection", (socket) => {
       // clean up room code state if room is now empty
       const remaining = getAllConnectedClients(roomId);
       if (remaining.length === 0) {
+        if (roomState[roomId]?.idleInterval) {
+          try { clearInterval(roomState[roomId].idleInterval); } catch (e) {}
+        }
         roomState[roomId] = null;
         roomCodeState.delete(roomId);
       }
