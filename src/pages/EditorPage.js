@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
 import toast from "react-hot-toast";
 import ACTIONS from "../Actions";
-import Client from "../components/Client";
 import Editor from "../components/Editor";
 import Terminal from "../components/Terminal";
+import TopNavigation from "../components/layout/TopNavigation";
+import Sidebar from "../components/layout/Sidebar";
+import AnalyticsPanel from "../components/analytics/AnalyticsPanel";
 import { initSocket } from "../socket";
 import {
   useLocation,
@@ -20,7 +22,7 @@ const EditorPage = () => {
   const [hands, setHands] = useState([]); // [socketId]
   const [activeEditorId, setActiveEditorId] = useState(null);
   const [progressMap, setProgressMap] = useState({}); // socketId -> analytics data
-  const [showErrors, setShowErrors] = useState(false); // toggle between error view and activity view
+  const [showUserPanel, setShowUserPanel] = useState(false); // show connected user list on sidebar icon click
   const socketRef = useRef(null);
   const codeRef = useRef(""); // shared buffer
   const personalCodeRef = useRef(""); // personal buffer
@@ -39,11 +41,11 @@ const EditorPage = () => {
   // Re-running this effect on every clients/permission change would cause
   // duplicate event subscriptions and unexpected behavior. The handlers
   // themselves update React state when needed.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     activeTabRef.current = activeTab;
   }, [activeTab]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const init = async () => {
       socketRef.current = await initSocket();
@@ -161,7 +163,7 @@ const EditorPage = () => {
           personalCodeRef.current = saved;
           displayRef.current = saved; // also set display so it shows on tab switch
         }
-      } catch (e) {}
+      } catch (e) { }
 
       // initial connect
       socketRef.current.on("connect_error", handleErrors);
@@ -193,7 +195,7 @@ const EditorPage = () => {
         });
       });
 
-      socketRef.current.on("reconnect_attempt", () => {});
+      socketRef.current.on("reconnect_attempt", () => { });
       socketRef.current.on("reconnect_error", (e) =>
         console.warn("reconnect_error", e)
       );
@@ -278,9 +280,9 @@ const EditorPage = () => {
         try {
           const key = `personal:${roomId}:${location.state?.username}`;
           sessionStorage.setItem(key, personalCodeRef.current);
-        } catch (e) {}
+        } catch (e) { }
       }
-    } catch (e) {}
+    } catch (e) { }
   };
 
   const switchTab = (target) => {
@@ -305,22 +307,7 @@ const EditorPage = () => {
     }
   };
 
-  const formatAgo = (timestamp) => {
-    if (!timestamp) return "no activity yet";
-    const diff = Math.max(0, Date.now() - timestamp);
-    if (diff < 90 * 1000) return `${Math.floor(diff / 1000)}s ago`;
-    const mins = Math.round(diff / 60000);
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.round(mins / 60);
-    return `${hrs}h ago`;
-  };
-
-  // Check if error is still recent (within 5 minutes, matching server threshold)
-  const isErrorRecent = (lastErrorTime) => {
-    if (!lastErrorTime) return false;
-    const ERROR_VISIBLE_MS = 5 * 60 * 1000; // 5 minutes
-    return Date.now() - lastErrorTime < ERROR_VISIBLE_MS;
-  };
+  // Removed formatAgo and isErrorRecent to AnalyticsPanel.js
 
   // Save file handler (uses active tab)
   const handleSaveFile = () => {
@@ -368,7 +355,7 @@ const EditorPage = () => {
           try {
             const key = `personal:${roomId}:${location.state?.username}`;
             sessionStorage.setItem(key, personalCodeRef.current);
-          } catch (e) {}
+          } catch (e) { }
         }
       }
     };
@@ -376,247 +363,174 @@ const EditorPage = () => {
   };
 
   return (
-    <div className="mainWrap">
-      <div className="aside">
-        <div className="asideInner">
-          <div className="logo">
-            <img className="logoImage" src="/code-sync.png" alt="logo" />
-          </div>
-          <h3>Connected</h3>
-          <div className="clientsList">
-            {(() => {
-              const sorted = [...clients].sort((a, b) => {
-                const aIsAdmin = a.socketId === adminId ? -1 : 0;
-                const bIsAdmin = b.socketId === adminId ? -1 : 0;
-                if (aIsAdmin !== bIsAdmin) return aIsAdmin - bIsAdmin;
-                return (a.username || "").localeCompare(b.username || "");
-              });
-              return sorted.map((client) => {
-                const canEdit = permissions?.[client.socketId] !== false; // default true
-                const handRaised = hands?.includes(client.socketId);
-                const isSelf = client.socketId === mySocketId;
-                const clientIsAdmin = client.socketId === adminId;
-                const isActiveEditor = client.socketId === activeEditorId;
-                return (
-                  <Client
-                    key={client.socketId}
-                    username={client.username}
-                    isAdminView={isAdmin}
-                    isAdminUser={clientIsAdmin}
-                    canEdit={canEdit}
-                    isSelf={isSelf}
-                    handRaised={handRaised}
-                    isActiveEditor={isActiveEditor}
-                    onTogglePermission={
-                      isAdmin ? () => toggleUserPermission(client.socketId) : undefined
-                    }
-                    onRaiseHand={!clientIsAdmin && isSelf ? setHand : undefined}
-                    onRemoveUser={isAdmin && !clientIsAdmin && !isSelf ? () => {
-                      if (!socketRef.current) return;
-                      socketRef.current.emit(ACTIONS.KICK_USER, { roomId, targetSocketId: client.socketId });
-                    } : undefined}
-                  />
-                );
-              });
-            })()}
-          </div>
-        </div>
-        <button className="btn copyBtn" onClick={copyRoomId}>
-          Copy ROOM ID
-        </button>
-        <button className="btn leaveBtn" onClick={leaveRoom}>
-          Leave
-        </button>
-        {isHost && (
-          <button
-            className="btn blockEditBtn"
-            style={{
-              marginTop: "10px",
-              background: editingBlocked ? "#e74c3c" : "#2ecc71",
+    <div className="bg-background text-on-surface min-h-screen flex flex-col font-body">
+      <div className="grain-overlay fixed inset-0 z-0"></div>
+
+      <TopNavigation
+        isHost={isHost}
+        editingBlocked={editingBlocked}
+        handleBlockEditing={handleBlockEditing}
+        copyRoomId={copyRoomId}
+        username={location.state?.username}
+        leaveRoom={leaveRoom}
+      />
+
+      <main className="flex-1 mt-12 flex flex-col relative z-10 w-full max-w-[1920px] mx-auto">
+        <div className="flex-1 flex flex-col lg:flex-row">
+          {/* Sidebar: Classroom Members */}
+          <Sidebar
+            clients={clients}
+            adminId={adminId}
+            permissions={permissions}
+            hands={hands}
+            mySocketId={mySocketId}
+            activeEditorId={activeEditorId}
+            isAdmin={isAdmin}
+            showUserPanel={showUserPanel}
+            setShowUserPanel={setShowUserPanel}
+            onTogglePermission={toggleUserPermission}
+            onRaiseHand={setHand}
+            onKickUser={(targetId) => {
+              if (socketRef.current) {
+                socketRef.current.emit(ACTIONS.KICK_USER, { roomId, targetSocketId: targetId });
+              }
             }}
-            onClick={handleBlockEditing}
-          >
-            {editingBlocked ? "Unblock Editing (all)" : "Block Editing (all)"}
-          </button>
-        )}
-      </div>
-      <div className="editorWrap">
-        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-          <div style={{ flex: "1 1 auto" }}>
-            {/* Tabs */}
-            <div className="editorTabs">
+          />
+
+          {/* Main Content Area */}
+          <section className="flex-1 flex flex-col bg-surface relative overflow-hidden">
+            {/* Tabs Navigation */}
+            <div className="h-10 flex items-center px-8 gap-1 border-b border-white/5 bg-surface-container-lowest/30 backdrop-blur-md">
               <button
-                className={`tabBtn ${activeTab === "shared" ? "active" : ""}`}
-                onClick={() => switchTab("shared")}
+                className={`px-6 h-full flex items-center gap-2 border-b-2 font-headline text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'shared' ? 'border-primary text-primary bg-white/5' : 'border-transparent text-on-surface-variant hover:text-on-surface hover:bg-white/5'}`}
+                onClick={() => switchTab('shared')}
               >
+                <span className="material-symbols-outlined text-base">diversity_3</span>
                 Shared
               </button>
               <button
-                className={`tabBtn ${activeTab === "personal" ? "active" : ""}`}
-                onClick={() => switchTab("personal")}
+                className={`px-6 h-full flex items-center gap-2 border-b-2 font-headline text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'personal' ? 'border-primary text-primary bg-white/5' : 'border-transparent text-on-surface-variant hover:text-on-surface hover:bg-white/5'}`}
+                onClick={() => switchTab('personal')}
               >
-                Personal 🔒
+                <span className="material-symbols-outlined text-base">person</span>
+                Personal
               </button>
-              {isAdmin && (
-                <button
-                  className={`tabBtn ${activeTab === "analytics" ? "active" : ""}`}
-                  onClick={() => switchTab("analytics")}
-                  title="Live student progress (admin only)"
-                >
-                  Analytics 📊
-                </button>
-              )}
+              <button
+                className={`px-6 h-full flex items-center gap-2 border-b-2 font-headline text-xs font-bold uppercase tracking-widest transition-all group ${activeTab === 'analytics' ? 'border-primary text-primary bg-white/5' : 'border-transparent text-on-surface-variant hover:text-on-surface hover:bg-white/5'}`}
+                onClick={() => switchTab('analytics')}
+              >
+                <span className="material-symbols-outlined text-base group-hover:text-primary transition-colors">analytics</span>
+                Analytics
+                {activeTab !== 'analytics' && <span className="w-1.5 h-1.5 rounded-full bg-primary-dim animate-pulse"></span>}
+              </button>
             </div>
 
-            <div style={{ display: activeTab === "analytics" ? "none" : "block" }}>
-              <Editor
-                ref={editorComponentRef}
+            <div className="flex-1 flex flex-col overflow-hidden relative">
+              {/* Editor Component wrapper */}
+              <div className="flex-[4] flex flex-col precision-border border-t-0 border-l-0 border-r-0 border-b-0 z-10 w-full">
+                {activeTab !== 'analytics' && (
+                  <div className="bg-surface-container-low px-4 py-2 flex items-center justify-between border-b border-white/5">
+                    <div className="flex items-center gap-4">
+                      <span className="text-[10px] font-headline uppercase tracking-widest text-on-surface-variant">{activeTab}.js</span>
+                      <div className="flex gap-1">
+                        <span className="w-2 h-2 rounded-full bg-error/40"></span>
+                        <span className="w-2 h-2 rounded-full bg-secondary-dim/40"></span>
+                        <span className="w-2 h-2 rounded-full bg-primary-dim/40"></span>
+                      </div>
+                    </div>
+                    <div className="flex gap-4 items-center">
+                      <span className="material-symbols-outlined text-on-surface-variant text-lg cursor-pointer hover:text-on-surface" onClick={handleSaveFile} title="Save File">save</span>
+                      <div className="relative">
+                        <label htmlFor="file-upload" className="material-symbols-outlined text-on-surface-variant text-lg cursor-pointer hover:text-on-surface" title="Open File">
+                          file_upload
+                        </label>
+                        <input id="file-upload" type="file" className="hidden" onChange={handleOpenFile} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex-1 bg-transparent flex flex-col overflow-hidden relative">
+                  {activeTab === 'shared' || activeTab === 'personal' ? (
+                    <Editor
+                      ref={editorComponentRef}
+                      socketRef={socketRef}
+                      roomId={roomId}
+                      onCodeChange={(code) => {
+                        displayRef.current = code;
+                        if (activeTabRef.current === "shared") {
+                          codeRef.current = code;
+                        } else if (activeTabRef.current === "personal") {
+                          personalCodeRef.current = code;
+                          try {
+                            const key = `personal:${roomId}:${location.state?.username}`;
+                            sessionStorage.setItem(key, personalCodeRef.current);
+                          } catch (e) { }
+                          socketRef.current?.emit?.(ACTIONS.PERSONAL_ACTIVITY, { roomId });
+                        }
+                      }}
+                      emitChanges={activeTab === "shared"}
+                      disabled={(() => {
+                        if (activeTab === "personal") return false;
+                        if (activeTab === "analytics") return true;
+                        if (!isHost && editingBlocked) return true;
+                        const myId = mySocketId;
+                        if (!myId) return false;
+                        const canEdit = permissions?.[myId] !== false;
+                        return !canEdit && !isAdmin;
+                      })()}
+                    />
+                  ) : (
+                    <AnalyticsPanel
+                      clients={clients}
+                      adminId={adminId}
+                      progressMap={progressMap}
+                    />
+                  )}
+                  <div className="absolute bottom-10 right-10 pointer-events-none opacity-[0.02] select-none z-0">
+                    <h1 className="font-headline font-black text-[120px] tracking-tighter">SYNCIT</h1>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        {/* Horizontal Terminal Section */}
+        {activeTab !== 'analytics' && (
+          <div className="h-64 bg-black border-t border-white/10 flex flex-col z-20 shrink-0">
+            <div className="flex-1 overflow-hidden w-full relative">
+              <Terminal
                 socketRef={socketRef}
                 roomId={roomId}
-                onCodeChange={(code) => {
-                  // keep display in sync with what user sees
-                  displayRef.current = code;
-                  if (activeTabRef.current === "shared") {
-                    codeRef.current = code;
-                  } else if (activeTabRef.current === "personal") {
-                    personalCodeRef.current = code;
-                    try {
-                      const key = `personal:${roomId}:${location.state?.username}`;
-                      sessionStorage.setItem(key, personalCodeRef.current);
-                    } catch (e) {}
-                    // notify server for analytics when editing personal tab
-                    socketRef.current?.emit?.(ACTIONS.PERSONAL_ACTIVITY, { roomId });
-                  }
-                }}
-                emitChanges={activeTab === "shared"}
-                disabled={(() => {
-                  if (activeTab === "personal") return false; // always editable
-                  if (activeTab === "analytics") return true; // view-only
-                  if (!isHost && editingBlocked) return true; // legacy room-wide block
-                  const myId = mySocketId;
-                  if (!myId) return false;
-                  const canEdit = permissions?.[myId] !== false; // default true
-                  return !canEdit && !isAdmin;
-                })()}
+                codeRef={codeRef}
+                personalCodeRef={personalCodeRef}
+                source={activeTab === "personal" ? "personal" : "shared"}
               />
             </div>
           </div>
-          {activeTab !== "analytics" && (
-            <>
-              <div style={{ display: "flex", gap: "10px", margin: "10px 0" }}>
-                <button className="btn saveBtn" onClick={handleSaveFile}>
-                  Save File
-                </button>
-                <label className="btn openBtn" style={{ cursor: "pointer" }}>
-                  Open File
-                  <input
-                    type="file"
-                    accept=".js,.txt,.json,.py,.java,.cpp,.c,.md,.html,.css"
-                    style={{ display: "none" }}
-                    onChange={handleOpenFile}
-                  />
-                </label>
-              </div>
-              <div style={{ flex: "0 0 auto" }}>
-                <Terminal
-                  socketRef={socketRef}
-                  roomId={roomId}
-                  codeRef={codeRef}
-                  personalCodeRef={personalCodeRef}
-                  source={activeTab === "personal" ? "personal" : "shared"}
-                />
-              </div>
-            </>
-          )}
-          {activeTab === "analytics" && (
-            <div className="analyticsWrap">
-              <div className="analyticsHeader">
-                <div>
-                  <div className="analyticsTitle">Live student activity</div>
-                  <div className="analyticsSubtitle">
-                    {showErrors 
-                      ? "Showing error details for students with recent errors."
-                      : "Updates when someone types, goes idle (&gt;3m), or hits compile/runtime errors."}
-                  </div>
-                </div>
-                <button
-                  className={`analyticsToggle ${showErrors ? 'active' : ''}`}
-                  onClick={() => setShowErrors(!showErrors)}
-                  title={showErrors ? "Switch to activity view" : "Switch to error view"}
-                >
-                  {showErrors ? "📊 Show Activity" : "⚠️ Show Errors"}
-                </button>
-              </div>
-              <div className="analyticsGrid">
-                {(() => {
-                  const sorted = [...clients].sort((a, b) => {
-                    const aIsAdmin = a.socketId === adminId ? -1 : 0;
-                    const bIsAdmin = b.socketId === adminId ? -1 : 0;
-                    if (aIsAdmin !== bIsAdmin) return aIsAdmin - bIsAdmin;
-                    return (a.username || "").localeCompare(b.username || "");
-                  });
-                  return sorted.map((client) => {
-                    const info = progressMap?.[client.socketId] || {};
-                    const status = info.status || "unknown";
-                    const statusLabel = {
-                      active: "Active (typing)",
-                      idle: "Idle",
-                      stuck: "Stuck (no activity)",
-                      error: "Error while running code",
-                      unknown: "No activity yet",
-                    }[status] || status;
-                    const hasError = info.lastError && info.lastErrorTime;
-                    const hasRecentError = hasError && isErrorRecent(info.lastErrorTime);
-                    
-                    // In error view, only show students with recent errors (within 5 minutes)
-                    if (showErrors && !hasRecentError) {
-                      return null;
-                    }
-                    
-                    return (
-                      <div className="analyticsCard" key={client.socketId}>
-                        <div className="analyticsCardHeader">
-                          <div className="analyticsName">
-                            {client.username}
-                            {client.socketId === mySocketId && " (you)"}
-                            {client.socketId === adminId && " • Admin"}
-                          </div>
-                          <div className={`statusChip ${status}`}>
-                            {statusLabel}
-                          </div>
-                        </div>
-                        <div className="analyticsMeta">
-                          <div>
-                            <span className="muted">Last activity: </span>
-                            <span>{formatAgo(info.lastActivity)}</span>
-                          </div>
-                          <div>
-                            <span className="muted">Last event: </span>
-                            <span>{info.lastEvent || "—"}</span>
-                          </div>
-                          {showErrors && hasRecentError && (
-                            <div className="errorBox">
-                              <div className="errorBoxHeader">Last error:</div>
-                              <div className="errorBoxContent">
-                                {info.lastError}
-                              </div>
-                            </div>
-                          )}
-                          {!showErrors && hasRecentError && (
-                            <div style={{ marginTop: 8, fontSize: 12, color: '#e74c3c' }}>
-                              ⚠️ Has recent error (toggle to view)
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
-            </div>
-          )}
+        )}
+
+        {/* Bottom Info Bar */}
+        <div className="h-8 bg-slate-950 border-t border-white/5 px-6 flex items-center justify-between z-30 shrink-0">
+          <div className="flex items-center gap-4 text-[10px] font-mono tracking-wider">
+            <span className="flex items-center gap-2 text-primary">
+              <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></span>
+              Sync Protocol Active
+            </span>
+            <span className="text-on-surface-variant">•</span>
+            <span className="text-on-surface-variant">{clients.length} Students Connected</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-on-surface-variant font-headline uppercase tracking-widest">UTF-8</span>
+            <span className="text-[10px] text-on-surface-variant font-headline uppercase tracking-widest">JavaScript</span>
+          </div>
         </div>
-      </div>
+      </main>
+
+      {/* Background Decorative Gradients */}
+      <div className="fixed top-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary-dim/5 blur-[200px] rounded-full pointer-events-none z-[-1]"></div>
+      <div className="fixed bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-secondary-dim/5 blur-[200px] rounded-full pointer-events-none z-[-1]"></div>
     </div>
   );
 };

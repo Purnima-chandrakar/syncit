@@ -216,6 +216,7 @@ function emitProgressUpdate(roomId) {
       lastEvent: entry.lastEvent || null,
       lastError: entry.lastError || null,
       lastErrorTime: entry.lastErrorTime || null,
+      progress: entry.progress || 0,
     };
   });
   io.in(roomId).emit(ACTIONS.PROGRESS_UPDATE, {
@@ -228,10 +229,17 @@ function emitProgressUpdate(roomId) {
 function markActivity(roomId, socketId, lastEvent = "activity") {
   const room = ensureRoomState(roomId);
   const prev = room.activity?.[socketId] || {};
+  
+  let progress = prev.progress || 0;
+  if (lastEvent === 'shared-typing' || lastEvent === 'personal-edit' || lastEvent === 'run') {
+    progress = Math.min(100, progress + Math.floor(Math.random() * 3) + 1);
+  }
+
   room.activity[socketId] = {
     ...prev,
     lastActivity: Date.now(),
     lastEvent,
+    progress,
   };
   emitProgressUpdate(roomId);
 }

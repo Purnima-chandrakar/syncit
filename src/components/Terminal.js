@@ -72,40 +72,47 @@ const Terminal = ({ socketRef, roomId, codeRef, personalCodeRef, source = 'share
   }
 
   return (
-    <div style={{ borderTop: "1px solid #333", padding: 8 }}>
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          alignItems: "center",
-          marginBottom: 8,
-        }}
-      >
-        <label style={{ color: "#ddd" }}>Language</label>
-        <select className="langSelect" value={language} onChange={(e) => setLanguage(e.target.value)}>
+    <div className="flex flex-col h-full bg-transparent" style={{ padding: 8 }}>
+      <div className="flex gap-3 items-center mb-2 flex-wrap">
+        <select 
+          className="bg-primary text-on-primary px-4 py-2 font-headline text-xs font-bold uppercase tracking-widest rounded-sm hover:brightness-110 transition-all focus:outline-none appearance-none cursor-pointer" 
+          value={language} 
+          onChange={(e) => setLanguage(e.target.value)}
+        >
           {LANGUAGES.map((l) => (
-            <option key={l} value={l}>
+            <option key={l} value={l} className="bg-surface text-on-surface">
               {l}
             </option>
           ))}
         </select>
-        <label style={{ color: "#ddd", marginLeft: 8 }}>Source</label>
-        <select className="langSelect" value={source} onChange={(e) => (/* noop here, controlled by parent */ null)} disabled>
-          <option value="shared">Shared</option>
-          <option value="personal">Personal</option>
+        
+        <select 
+          className="bg-primary text-on-primary px-4 py-2 font-headline text-xs font-bold uppercase tracking-widest rounded-sm hover:brightness-110 transition-all focus:outline-none appearance-none cursor-pointer" 
+          value={source} 
+          onChange={(e) => (/* noop here, controlled by parent */ null)} 
+          disabled
+        >
+          <option value="shared" className="bg-surface text-on-surface">Shared</option>
+          <option value="personal" className="bg-surface text-on-surface">Personal</option>
         </select>
-        <button className="btn" onClick={run} disabled={running}>
+
+        <button 
+          className="bg-primary text-on-primary px-4 py-2 font-headline text-xs font-bold uppercase tracking-widest rounded-sm hover:brightness-110 transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100" 
+          onClick={run} 
+          disabled={running}
+        >
           {running ? "Running..." : "Run"}
         </button>
+
         <button
-          className="btn"
+          className="bg-primary text-on-primary px-4 py-2 font-headline text-xs font-bold uppercase tracking-widest rounded-sm hover:brightness-110 transition-all active:scale-95 border border-primary ml-auto"
           onClick={() => setOutput("")}
-          style={{ marginLeft: "auto" }}
         >
           Clear
         </button>
+
         <input
-          className="termInput"
+          className="bg-surface-container-low text-on-surface px-4 py-2 font-mono text-xs rounded-sm border border-outline-variant/30 focus:outline-none focus:border-primary/50 w-64"
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={(e) => {
@@ -122,16 +129,15 @@ const Terminal = ({ socketRef, roomId, codeRef, personalCodeRef, source = 'share
           }}
           placeholder={running ? "Type input and press Enter" : "Run code to enable input"}
           disabled={!running}
-          style={{ marginLeft: 8, padding: '6px 8px', flex: '0 0 240px', background: '#111', color: '#eee', border: '1px solid #333', borderRadius: 4 }}
         />
       </div>
       <div
         ref={outRef}
+        className="flex-1 custom-scrollbar"
         style={{
-          background: "#0b0b0b",
+          background: "transparent",
           color: "#eee",
           padding: 10,
-          height: 200,
           overflow: "auto",
           fontFamily: "monospace",
           fontSize: 13,

@@ -15,6 +15,7 @@ import ACTIONS from "../Actions";
 const Editor = forwardRef(
   ({ socketRef, roomId, onCodeChange, disabled, emitChanges = true }, ref) => {
     const editorRef = useRef(null);
+    const textareaRef = useRef(null);
     // Keep latest values in refs so the CodeMirror change handler
     // does not close over stale props when the component updates.
     const emitChangesRef = useRef(emitChanges);
@@ -51,8 +52,21 @@ const Editor = forwardRef(
     // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
       async function init() {
+        if (!textareaRef.current) return;
+        if (editorRef.current) return; // Prevent double initialization
+
+        // Aggressive cleanup for React Strict Mode / HMR duplicate wrappers
+        const parent = textareaRef.current.parentNode;
+        if (parent) {
+          const orphanedMirrors = parent.querySelectorAll('.CodeMirror');
+          orphanedMirrors.forEach(m => m.remove());
+        }
+        
+        // Ensure textarea is visible before init if it was hidden
+        textareaRef.current.style.display = '';
+
         editorRef.current = Codemirror.fromTextArea(
-          document.getElementById("realtimeEditor"),
+          textareaRef.current,
           {
             mode: { name: "javascript", json: true },
             theme: "dracula",
@@ -84,6 +98,13 @@ const Editor = forwardRef(
         });
       }
       init();
+
+      return () => {
+        if (editorRef.current) {
+          editorRef.current.toTextArea();
+          editorRef.current = null;
+        }
+      };
     }, []);
 
     useEffect(() => {
@@ -95,7 +116,11 @@ const Editor = forwardRef(
     // Network updates are handled at the page level to avoid leaking into personal tab
     // This component is now presentation-only with optional emit on local change.
 
-    return <textarea id="realtimeEditor"></textarea>;
+    return (
+      <div className="w-full h-full flex-1 relative overflow-hidden flex flex-col">
+        <textarea ref={textareaRef}></textarea>
+      </div>
+    );
   }
 );
 

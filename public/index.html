@@ -1,15 +1,91 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#000000" />
     <meta
       name="description"
       content="Web site created using create-react-app"
     />
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Manrope:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+    <script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "error-dim": "#d73357",
+                      "on-tertiary-fixed-variant": "#005e64",
+                      "surface": "#050505",
+                      "on-secondary-fixed-variant": "#8400b3",
+                      "on-error-container": "#ffb2b9",
+                      "on-tertiary-fixed": "#003f43",
+                      "on-primary-fixed": "#000000",
+                      "surface-container-highest": "#1a1a1a",
+                      "surface-container-low": "#0a0a0a",
+                      "tertiary-container": "#00eefc",
+                      "on-primary-fixed-variant": "#13009c",
+                      "outline": "#404040",
+                      "on-tertiary-container": "#005359",
+                      "surface-tint": "#a4a5ff",
+                      "surface-variant": "#141414",
+                      "secondary-container": "#9900cf",
+                      "on-error": "#490013",
+                      "secondary-fixed": "#f1c1ff",
+                      "secondary-dim": "#bb00fc",
+                      "tertiary-dim": "#00deec",
+                      "on-secondary-fixed": "#580079",
+                      "on-secondary": "#390050",
+                      "error": "#ff6e84",
+                      "secondary": "#d674ff",
+                      "on-primary": "#ffffff",
+                      "primary": "#5D5CFF",
+                      "secondary-fixed-dim": "#eaaeff",
+                      "on-background": "#ffffff",
+                      "on-surface-variant": "#a1a1a1",
+                      "surface-container": "#0f0f0f",
+                      "on-secondary-container": "#fff5fc",
+                      "on-surface": "#ffffff",
+                      "on-primary-container": "#0d0080",
+                      "surface-container-high": "#121212",
+                      "inverse-on-surface": "#52555c",
+                      "surface-dim": "#050505",
+                      "surface-container-lowest": "#000000",
+                      "inverse-surface": "#f9f9ff",
+                      "primary-dim": "#4744ea",
+                      "outline-variant": "#262626",
+                      "tertiary-fixed-dim": "#00deec",
+                      "background": "#050505",
+                      "tertiary-fixed": "#00eefc",
+                      "inverse-primary": "#4744ea",
+                      "on-tertiary": "#005d63",
+                      "tertiary": "#8ff5ff",
+                      "error-container": "#a70138",
+                      "primary-fixed-dim": "#8586ff",
+                      "primary-container": "#5D5CFF",
+                      "primary-fixed": "#5D5CFF",
+                      "surface-bright": "#1a1a1a"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0px",
+                      "lg": "8px",
+                      "xl": "16px",
+                      "full": "9999px"
+              },
+              "fontFamily": {
+                      "headline": ["Space Grotesk"],
+                      "body": ["Inter"],
+                      "label": ["Space Grotesk"]
+              }
+            },
+          },
+        }
+    </script>
     <!--
       manifest.json provides metadata used when your web app is installed on a
       user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
@@ -24,7 +100,7 @@
       work correctly both with client-side routing and a non-root public URL.
       Learn how to configure a non-root public URL by running `npm run build`.
     -->
-    <title>React App</title>
+    <title>SyncIt | Elite Code Editor</title>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
