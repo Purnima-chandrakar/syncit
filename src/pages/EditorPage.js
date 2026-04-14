@@ -6,6 +6,7 @@ import Terminal from "../components/Terminal";
 import TopNavigation from "../components/layout/TopNavigation";
 import Sidebar from "../components/layout/Sidebar";
 import AnalyticsPanel from "../components/analytics/AnalyticsPanel";
+import Flowchart from "../components/Flowchart";
 import { initSocket } from "../socket";
 import {
   useLocation,
@@ -26,8 +27,9 @@ const EditorPage = () => {
   const socketRef = useRef(null);
   const codeRef = useRef(""); // shared buffer
   const personalCodeRef = useRef(""); // personal buffer
-  const [activeTab, setActiveTab] = useState("shared"); // 'shared' | 'personal' | 'analytics'
+  const [activeTab, setActiveTab] = useState("shared"); // 'shared' | 'personal' | 'analytics' | 'flowchart'
   const activeTabRef = useRef("shared"); // track latest tab in event handlers
+  const [flowchartSource, setFlowchartSource] = useState("shared"); // track which code source to show in flowchart
   const displayRef = useRef(""); // what is currently shown in the editor UI
   const editorComponentRef = useRef(null);
   const location = useLocation();
@@ -65,8 +67,8 @@ const EditorPage = () => {
         socketRef.current.off(ACTIONS.CODE_CHANGE);
         socketRef.current.off(ACTIONS.ACTIVE_EDITOR);
         socketRef.current.off(ACTIONS.USER_KICKED);
-        socketRef.current.off('kick-success');
-        socketRef.current.off('kick-error');
+        socketRef.current.off("kick-success");
+        socketRef.current.off("kick-error");
         socketRef.current.off(ACTIONS.PROGRESS_UPDATE);
 
         // joined
@@ -82,9 +84,9 @@ const EditorPage = () => {
             socketRef.current.emit(ACTIONS.SYNC_CODE, {
               code: codeRef.current,
               socketId,
-              mode: 'shared',
+              mode: "shared",
             });
-          }
+          },
         );
 
         // disconnected
@@ -95,18 +97,18 @@ const EditorPage = () => {
 
         // user was kicked by admin
         socketRef.current.on(ACTIONS.USER_KICKED, ({ reason }) => {
-          toast.error(reason || 'You were removed from the room.');
+          toast.error(reason || "You were removed from the room.");
           setTimeout(() => {
-            reactNavigator('/', { state: { message: reason } });
+            reactNavigator("/", { state: { message: reason } });
           }, 500);
         });
 
         // kick result feedback for admin
-        socketRef.current.on('kick-success', ({ username }) => {
+        socketRef.current.on("kick-success", ({ username }) => {
           toast.success(`Removed ${username} from the room.`);
         });
-        socketRef.current.on('kick-error', ({ error }) => {
-          toast.error(error || 'Failed to remove user.');
+        socketRef.current.on("kick-error", ({ error }) => {
+          toast.error(error || "Failed to remove user.");
         });
 
         // legacy block toggle
@@ -121,7 +123,7 @@ const EditorPage = () => {
             setAdminId(adminId || null);
             setPermissions(permissions || {});
             setHands(hands || []);
-          }
+          },
         );
 
         // who is actively editing (shared)
@@ -163,7 +165,7 @@ const EditorPage = () => {
           personalCodeRef.current = saved;
           displayRef.current = saved; // also set display so it shows on tab switch
         }
-      } catch (e) { }
+      } catch (e) {}
 
       // initial connect
       socketRef.current.on("connect_error", handleErrors);
@@ -190,14 +192,14 @@ const EditorPage = () => {
           socketRef.current.emit(ACTIONS.SYNC_CODE, {
             code: codeRef.current,
             socketId: p.socketId,
-            mode: 'shared',
+            mode: "shared",
           });
         });
       });
 
-      socketRef.current.on("reconnect_attempt", () => { });
+      socketRef.current.on("reconnect_attempt", () => {});
       socketRef.current.on("reconnect_error", (e) =>
-        console.warn("reconnect_error", e)
+        console.warn("reconnect_error", e),
       );
     };
     init();
@@ -216,8 +218,8 @@ const EditorPage = () => {
         socketRef.current.off(ACTIONS.CODE_CHANGE);
         socketRef.current.off(ACTIONS.ACTIVE_EDITOR);
         socketRef.current.off(ACTIONS.USER_KICKED);
-        socketRef.current.off('kick-success');
-        socketRef.current.off('kick-error');
+        socketRef.current.off("kick-success");
+        socketRef.current.off("kick-error");
         socketRef.current.off(ACTIONS.PROGRESS_UPDATE);
         socketRef.current.disconnect();
       }
@@ -269,41 +271,52 @@ const EditorPage = () => {
     socketRef.current.emit(ACTIONS.RAISE_HAND, { roomId, raised });
   };
 
-  const persistCurrentBuffer = () => {
-    try {
-      const current =
-        editorComponentRef.current?.getValue?.() ?? displayRef.current ?? "";
+  const switchTab = (target) => {
+    if (target === activeTabRef.current) return;
+
+    // Always persist current editor content before switching
+    const currentEditorContent =
+      editorComponentRef.current?.getValue?.() ?? displayRef.current ?? "";
+    if (currentEditorContent) {
       if (activeTabRef.current === "shared") {
-        codeRef.current = current;
+        codeRef.current = currentEditorContent;
       } else if (activeTabRef.current === "personal") {
-        personalCodeRef.current = current;
+        personalCodeRef.current = currentEditorContent;
         try {
           const key = `personal:${roomId}:${location.state?.username}`;
           sessionStorage.setItem(key, personalCodeRef.current);
-        } catch (e) { }
+        } catch (e) {}
       }
-    } catch (e) { }
-  };
+    }
 
-  const switchTab = (target) => {
-    if (target === activeTabRef.current) return;
-    // persist before switching away
-    persistCurrentBuffer();
+    // Track which code source to use for flowchart when switching away from editor tabs
+    if (
+      target === "flowchart" &&
+      (activeTabRef.current === "shared" || activeTabRef.current === "personal")
+    ) {
+      setFlowchartSource(activeTabRef.current);
+    }
+
     setActiveTab(target);
     activeTabRef.current = target;
 
+    // Restore content when switching back to editor tabs
     if (target === "shared") {
       const targetValue = codeRef.current ?? "";
-      if (editorComponentRef.current?.setValue) {
-        editorComponentRef.current.setValue(targetValue);
-        displayRef.current = targetValue;
-      }
+      setTimeout(() => {
+        if (editorComponentRef.current?.setValue) {
+          editorComponentRef.current.setValue(targetValue);
+          displayRef.current = targetValue;
+        }
+      }, 50);
     } else if (target === "personal") {
       const targetValue = personalCodeRef.current ?? "";
-      if (editorComponentRef.current?.setValue) {
-        editorComponentRef.current.setValue(targetValue);
-        displayRef.current = targetValue;
-      }
+      setTimeout(() => {
+        if (editorComponentRef.current?.setValue) {
+          editorComponentRef.current.setValue(targetValue);
+          displayRef.current = targetValue;
+        }
+      }, 50);
     }
   };
 
@@ -311,10 +324,13 @@ const EditorPage = () => {
 
   // Save file handler (uses active tab)
   const handleSaveFile = () => {
-    const code = activeTab === "shared" ? codeRef.current || "" : personalCodeRef.current || "";
+    const code =
+      activeTab === "shared"
+        ? codeRef.current || ""
+        : personalCodeRef.current || "";
     let filename = window.prompt(
       "Enter filename (with extension, e.g. myfile.js):",
-      activeTab === "shared" ? "shared.txt" : "personal.txt"
+      activeTab === "shared" ? "shared.txt" : "personal.txt",
     );
     if (!filename) return;
     const blob = new Blob([code], { type: "text/plain" });
@@ -343,7 +359,7 @@ const EditorPage = () => {
             socketRef.current.emit(ACTIONS.CODE_CHANGE, {
               roomId,
               code: text,
-              mode: 'shared',
+              mode: "shared",
             });
           }
         } else {
@@ -355,7 +371,7 @@ const EditorPage = () => {
           try {
             const key = `personal:${roomId}:${location.state?.username}`;
             sessionStorage.setItem(key, personalCodeRef.current);
-          } catch (e) { }
+          } catch (e) {}
         }
       }
     };
@@ -392,7 +408,10 @@ const EditorPage = () => {
             onRaiseHand={setHand}
             onKickUser={(targetId) => {
               if (socketRef.current) {
-                socketRef.current.emit(ACTIONS.KICK_USER, { roomId, targetSocketId: targetId });
+                socketRef.current.emit(ACTIONS.KICK_USER, {
+                  roomId,
+                  targetSocketId: targetId,
+                });
               }
             }}
           />
@@ -402,36 +421,60 @@ const EditorPage = () => {
             {/* Tabs Navigation */}
             <div className="h-10 flex items-center px-8 gap-1 border-b border-white/5 bg-surface-container-lowest/30 backdrop-blur-md">
               <button
-                className={`px-6 h-full flex items-center gap-2 border-b-2 font-headline text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'shared' ? 'border-primary text-primary bg-white/5' : 'border-transparent text-on-surface-variant hover:text-on-surface hover:bg-white/5'}`}
-                onClick={() => switchTab('shared')}
+                className={`px-6 h-full flex items-center gap-2 border-b-2 font-headline text-xs font-bold uppercase tracking-widest transition-all ${activeTab === "shared" ? "border-primary text-primary bg-white/5" : "border-transparent text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
+                onClick={() => switchTab("shared")}
               >
-                <span className="material-symbols-outlined text-base">diversity_3</span>
+                <span className="material-symbols-outlined text-base">
+                  diversity_3
+                </span>
                 Shared
               </button>
               <button
-                className={`px-6 h-full flex items-center gap-2 border-b-2 font-headline text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'personal' ? 'border-primary text-primary bg-white/5' : 'border-transparent text-on-surface-variant hover:text-on-surface hover:bg-white/5'}`}
-                onClick={() => switchTab('personal')}
+                className={`px-6 h-full flex items-center gap-2 border-b-2 font-headline text-xs font-bold uppercase tracking-widest transition-all ${activeTab === "personal" ? "border-primary text-primary bg-white/5" : "border-transparent text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
+                onClick={() => switchTab("personal")}
               >
-                <span className="material-symbols-outlined text-base">person</span>
+                <span className="material-symbols-outlined text-base">
+                  person
+                </span>
                 Personal
               </button>
+              {isAdmin && (
+                <button
+                  className={`px-6 h-full flex items-center gap-2 border-b-2 font-headline text-xs font-bold uppercase tracking-widest transition-all group ${activeTab === "analytics" ? "border-primary text-primary bg-white/5" : "border-transparent text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
+                  onClick={() => switchTab("analytics")}
+                >
+                  <span className="material-symbols-outlined text-base group-hover:text-primary transition-colors">
+                    analytics
+                  </span>
+                  Analytics
+                  {activeTab !== "analytics" && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary-dim animate-pulse"></span>
+                  )}
+                </button>
+              )}
               <button
-                className={`px-6 h-full flex items-center gap-2 border-b-2 font-headline text-xs font-bold uppercase tracking-widest transition-all group ${activeTab === 'analytics' ? 'border-primary text-primary bg-white/5' : 'border-transparent text-on-surface-variant hover:text-on-surface hover:bg-white/5'}`}
-                onClick={() => switchTab('analytics')}
+                className={`px-6 h-full flex items-center gap-2 border-b-2 font-headline text-xs font-bold uppercase tracking-widest transition-all group ${activeTab === "flowchart" ? "border-primary text-primary bg-white/5" : "border-transparent text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
+                onClick={() => switchTab("flowchart")}
               >
-                <span className="material-symbols-outlined text-base group-hover:text-primary transition-colors">analytics</span>
-                Analytics
-                {activeTab !== 'analytics' && <span className="w-1.5 h-1.5 rounded-full bg-primary-dim animate-pulse"></span>}
+                <span className="material-symbols-outlined text-base group-hover:text-primary transition-colors">
+                  account_tree
+                </span>
+                Flowchart
+                {activeTab !== "flowchart" && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary-dim animate-pulse"></span>
+                )}
               </button>
             </div>
 
             <div className="flex-1 flex flex-col overflow-hidden relative">
               {/* Editor Component wrapper */}
               <div className="flex-[4] flex flex-col precision-border border-t-0 border-l-0 border-r-0 border-b-0 z-10 w-full">
-                {activeTab !== 'analytics' && (
+                {(activeTab === "shared" || activeTab === "personal") && (
                   <div className="bg-surface-container-low px-4 py-2 flex items-center justify-between border-b border-white/5">
                     <div className="flex items-center gap-4">
-                      <span className="text-[10px] font-headline uppercase tracking-widest text-on-surface-variant">{activeTab}.js</span>
+                      <span className="text-[10px] font-headline uppercase tracking-widest text-on-surface-variant">
+                        {activeTab}.js
+                      </span>
                       <div className="flex gap-1">
                         <span className="w-2 h-2 rounded-full bg-error/40"></span>
                         <span className="w-2 h-2 rounded-full bg-secondary-dim/40"></span>
@@ -439,19 +482,34 @@ const EditorPage = () => {
                       </div>
                     </div>
                     <div className="flex gap-4 items-center">
-                      <span className="material-symbols-outlined text-on-surface-variant text-lg cursor-pointer hover:text-on-surface" onClick={handleSaveFile} title="Save File">save</span>
+                      <span
+                        className="material-symbols-outlined text-on-surface-variant text-lg cursor-pointer hover:text-on-surface"
+                        onClick={handleSaveFile}
+                        title="Save File"
+                      >
+                        save
+                      </span>
                       <div className="relative">
-                        <label htmlFor="file-upload" className="material-symbols-outlined text-on-surface-variant text-lg cursor-pointer hover:text-on-surface" title="Open File">
+                        <label
+                          htmlFor="file-upload"
+                          className="material-symbols-outlined text-on-surface-variant text-lg cursor-pointer hover:text-on-surface"
+                          title="Open File"
+                        >
                           file_upload
                         </label>
-                        <input id="file-upload" type="file" className="hidden" onChange={handleOpenFile} />
+                        <input
+                          id="file-upload"
+                          type="file"
+                          className="hidden"
+                          onChange={handleOpenFile}
+                        />
                       </div>
                     </div>
                   </div>
                 )}
 
                 <div className="flex-1 bg-transparent flex flex-col overflow-hidden relative">
-                  {activeTab === 'shared' || activeTab === 'personal' ? (
+                  {activeTab === "shared" || activeTab === "personal" ? (
                     <Editor
                       ref={editorComponentRef}
                       socketRef={socketRef}
@@ -464,9 +522,14 @@ const EditorPage = () => {
                           personalCodeRef.current = code;
                           try {
                             const key = `personal:${roomId}:${location.state?.username}`;
-                            sessionStorage.setItem(key, personalCodeRef.current);
-                          } catch (e) { }
-                          socketRef.current?.emit?.(ACTIONS.PERSONAL_ACTIVITY, { roomId });
+                            sessionStorage.setItem(
+                              key,
+                              personalCodeRef.current,
+                            );
+                          } catch (e) {}
+                          socketRef.current?.emit?.(ACTIONS.PERSONAL_ACTIVITY, {
+                            roomId,
+                          });
                         }
                       }}
                       emitChanges={activeTab === "shared"}
@@ -480,15 +543,40 @@ const EditorPage = () => {
                         return !canEdit && !isAdmin;
                       })()}
                     />
-                  ) : (
+                  ) : activeTab === "flowchart" ? (
+                    <Flowchart
+                      code={
+                        flowchartSource === "shared"
+                          ? codeRef.current
+                          : personalCodeRef.current
+                      }
+                      source={flowchartSource}
+                      onSourceChange={setFlowchartSource}
+                    />
+                  ) : isAdmin ? (
                     <AnalyticsPanel
                       clients={clients}
                       adminId={adminId}
                       progressMap={progressMap}
+                      socket={socketRef.current}
                     />
+                  ) : (
+                    <div className="p-8 flex-1 text-white">
+                      <div className="max-w-2xl mx-auto rounded-2xl border border-white/10 bg-surface/80 p-8 text-center">
+                        <h2 className="text-xl font-semibold text-white mb-3">
+                          Analytics are only available to the room admin.
+                        </h2>
+                        <p className="text-sm text-slate-400">
+                          Switch to the Shared or Personal tab to continue
+                          collaborating.
+                        </p>
+                      </div>
+                    </div>
                   )}
                   <div className="absolute bottom-10 right-10 pointer-events-none opacity-[0.02] select-none z-0">
-                    <h1 className="font-headline font-black text-[120px] tracking-tighter">SYNCIT</h1>
+                    <h1 className="font-headline font-black text-[120px] tracking-tighter">
+                      SYNCIT
+                    </h1>
                   </div>
                 </div>
               </div>
@@ -497,7 +585,7 @@ const EditorPage = () => {
         </div>
 
         {/* Horizontal Terminal Section */}
-        {activeTab !== 'analytics' && (
+        {activeTab !== "analytics" && (
           <div className="h-64 bg-black border-t border-white/10 flex flex-col z-20 shrink-0">
             <div className="flex-1 overflow-hidden w-full relative">
               <Terminal
@@ -519,11 +607,17 @@ const EditorPage = () => {
               Sync Protocol Active
             </span>
             <span className="text-on-surface-variant">•</span>
-            <span className="text-on-surface-variant">{clients.length} Students Connected</span>
+            <span className="text-on-surface-variant">
+              {clients.length} Students Connected
+            </span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-[10px] text-on-surface-variant font-headline uppercase tracking-widest">UTF-8</span>
-            <span className="text-[10px] text-on-surface-variant font-headline uppercase tracking-widest">JavaScript</span>
+            <span className="text-[10px] text-on-surface-variant font-headline uppercase tracking-widest">
+              UTF-8
+            </span>
+            <span className="text-[10px] text-on-surface-variant font-headline uppercase tracking-widest">
+              JavaScript
+            </span>
           </div>
         </div>
       </main>

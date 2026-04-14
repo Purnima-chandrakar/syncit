@@ -166,14 +166,15 @@ const socketVenvs = new Map();
 const roomCodeState = new Map();
 
 // Analytics thresholds
-const STUCK_THRESHOLD_MS = 3 * 60 * 1000; // 3 minutes of inactivity
-const ACTIVE_WINDOW_MS = 8 * 1000; // consider active if typing within last 8s
+let STUCK_THRESHOLD_MS = 1 * 60 * 1000; // 1 minute of inactivity
+const ACTIVE_WINDOW_MS = 30 * 1000; // consider active if typing within last 30s
 const ERROR_VISIBLE_MS = 5 * 60 * 1000; // show recent errors for 5 minutes
 
 function ensureRoomState(roomId) {
   if (!roomState[roomId]) {
     roomState[roomId] = {
       adminId: null,
+      adminUsername: null, // Track admin by username for persistence across reconnections
       permissions: {},
       hands: new Set(),
       activeEditor: null,
@@ -278,7 +279,15 @@ io.on("connection", (socket) => {
     socket.join(roomId);
 
     const room = ensureRoomState(roomId);
-    if (!room.adminId) room.adminId = socket.id;
+    
+    // Determine admin: first user in room becomes admin (by username)
+    if (!room.adminUsername) {
+      room.adminUsername = username;
+      room.adminId = socket.id;
+    } else if (room.adminUsername === username) {
+      // If the same username rejoins, update their socket ID to maintain admin role
+      room.adminId = socket.id;
+    }
 
     // initialize shared code storage if first join
     if (!roomCodeState.has(roomId)) {
@@ -783,44 +792,36 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Admin update stuck threshold { minutes: number } (global setting, admin only check per room? but global anyway)
+  socket.on(ACTIONS.UPDATE_STUCK_THRESHOLD, ({ minutes }) => {
+    // Check if sender is admin in any room (simple check, assume they are admin somewhere if sending this)
+    const isAdmin = Object.values(roomState).some(room => room.adminId === socket.id);
+    if (!isAdmin) return; // only admins can update threshold
+    const newThreshold = Math.max(1, Math.min(60, minutes)) * 60 * 1000; // clamp 1-60 minutes
+    STUCK_THRESHOLD_MS = newThreshold;
+    console.log(`Stuck threshold updated to ${minutes} minutes by admin`);
+    // Optionally broadcast to all clients, but for now just log
+  });
+
   socket.on("disconnecting", () => {
     const rooms = [...socket.rooms];
     rooms.forEach((roomId) => {
-      // update room state
-      const room = roomState[roomId];
-      if (room) {
-        // remove from permissions and hands
-        delete room.permissions[socket.id];
-        room.hands.delete(socket.id);
-        if (room.activity) delete room.activity[socket.id];
-        // if admin leaves, pick next client as admin
-        if (room.adminId === socket.id) {
-          const remaining = getAllConnectedClients(roomId).filter(c => c.socketId !== socket.id);
-          room.adminId = remaining[0]?.socketId || null;
-        }
-        // if the disconnecting user was the active editor, clear it
-        if (room.activeEditor === socket.id) {
-          room.activeEditor = null;
-          if (room.typingTimeout) {
-            try { clearTimeout(room.typingTimeout); } catch (e) {}
-            room.typingTimeout = null;
-          }
-          io.in(roomId).emit(ACTIONS.ACTIVE_EDITOR, { socketId: null });
-        }
-
-        // broadcast permission update
-        io.in(roomId).emit(ACTIONS.PERMISSION_UPDATE, {
-          adminId: room.adminId,
-          permissions: room.permissions,
-          hands: Array.from(room.hands),
-        });
+      const room = ensureRoomState(roomId);
+      if (room.activity) delete room.activity[socket.id];
+      // if admin leaves, pick next client as admin
+      if (room.adminId === socket.id) {
+        const remaining = getAllConnectedClients(roomId).filter(c => c.socketId !== socket.id);
+        room.adminId = remaining[0]?.socketId || null;
       }
-
-      socket.in(roomId).emit(ACTIONS.DISCONNECTED, {
-        socketId: socket.id,
-        username: userSocketMap[socket.id],
-      });
-
+      // if admin leaves, clear active editor
+      if (room.activeEditor === socket.id) {
+        room.activeEditor = null;
+      }
+      // clear typing timeout if disconnecting user was active editor
+      if (room.typingTimeout) {
+        try { clearTimeout(room.typingTimeout); } catch (e) {}
+        room.typingTimeout = null;
+      }
       // clean up room code state if room is now empty
       const remaining = getAllConnectedClients(roomId);
       if (remaining.length === 0) {

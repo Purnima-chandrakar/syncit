@@ -33,6 +33,9 @@ const ACTIONS = {
   // admin moderation
   KICK_USER: "kick-user", // client -> server (admin requests removing a user)
   USER_KICKED: "user-kicked", // server -> client (notifies target they were kicked)
+
+  // analytics settings
+  UPDATE_STUCK_THRESHOLD: "update-stuck-threshold", // client -> server (admin updates stuck threshold)
 };
 
 module.exports = ACTIONS;
