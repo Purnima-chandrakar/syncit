@@ -3,6 +3,9 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import Home from './pages/Home';
 import EditorPage from './pages/EditorPage';
+import CurriculumPage from './pages/CurriculumPage';
+import StudentsPage from './pages/StudentsPage';
+import ResourcesPage from './pages/ResourcesPage';
 
 function App() {
     return (
@@ -42,6 +45,9 @@ function App() {
                         path="/editor/:roomId"
                         element={<EditorPage />}
                     ></Route>
+                    <Route path="/curriculum" element={<CurriculumPage />}></Route>
+                    <Route path="/students" element={<StudentsPage />}></Route>
+                    <Route path="/resources" element={<ResourcesPage />}></Route>
                 </Routes>
             </BrowserRouter>
         </>

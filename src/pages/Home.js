@@ -14,9 +14,9 @@ import {
 } from '../components/home';
 
 /** When loader begins fading out (body already emerging underneath) */
-const LOADER_FADE_START_MS = 1650;
+const LOADER_FADE_START_MS = 800;
 /** Unmount loader after overlay fade completes */
-const LOADER_UNMOUNT_MS = LOADER_FADE_START_MS + 1100;
+const LOADER_UNMOUNT_MS = LOADER_FADE_START_MS + 600;
 
 export default function Home() {
     const navigate = useNavigate();

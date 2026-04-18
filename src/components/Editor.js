@@ -6,10 +6,10 @@ import React, {
 } from "react";
 import Codemirror from "codemirror";
 import "codemirror/lib/codemirror.css";
-import "codemirror/theme/dracula.css";
 import "codemirror/mode/javascript/javascript";
 import "codemirror/addon/edit/closetag";
 import "codemirror/addon/edit/closebrackets";
+import "./Editor.css";
 import ACTIONS from "../Actions";
 
 const Editor = forwardRef(
@@ -69,11 +69,15 @@ const Editor = forwardRef(
           textareaRef.current,
           {
             mode: { name: "javascript", json: true },
-            theme: "dracula",
+            theme: "default",
             autoCloseTags: true,
             autoCloseBrackets: true,
             lineNumbers: true,
             readOnly: disabled ? "nocursor" : false,
+            lineWrapping: false,
+            indentUnit: 2,
+            tabSize: 2,
+            indentWithTabs: false,
           }
         );
 

@@ -81,11 +81,13 @@ mermaid.initialize({
 });
 
 const CodeToFlowchartParser = (code, layout = "LR") => {
-  const lines = code.split("\n").filter((line) => line.trim());
   let nodeId = 0;
-  // Use layout parameter to determine direction
   let mermaidCode = `flowchart ${layout}\n`;
-  const nodeStack = [];
+
+  // Track control flow structure
+  const controlStack = [];
+  const loopStack = [];
+  const decisionStack = [];
 
   const addNode = (text, shape = "process") => {
     const id = `node${nodeId++}`;
@@ -93,25 +95,22 @@ const CodeToFlowchartParser = (code, layout = "LR") => {
 
     switch (shape) {
       case "start":
-        mermaidCode += `    ${id}((🟢 START));\n`;
+        mermaidCode += `    ${id}((START));\n`;
         break;
       case "end":
-        mermaidCode += `    ${id}((🔴 END));\n`;
+        mermaidCode += `    ${id}((END));\n`;
         break;
       case "decision":
         mermaidCode += `    ${id}{${formatted}};\n`;
         break;
       case "io":
-        mermaidCode += `    ${id}[["💾 ${formatted}"]];\n`;
+        mermaidCode += `    ${id}[["${formatted}"]];\n`;
         break;
       case "process":
-        mermaidCode += `    ${id}["⚙️ ${formatted}"];\n`;
+        mermaidCode += `    ${id}["${formatted}"];\n`;
         break;
       case "function":
-        mermaidCode += `    ${id}["📋 ${formatted}"];\n`;
-        break;
-      case "loop":
-        mermaidCode += `    ${id}["🔄 ${formatted}"];\n`;
+        mermaidCode += `    ${id}["${formatted}"];\n`;
         break;
       default:
         mermaidCode += `    ${id}["${formatted}"];\n`;
@@ -127,119 +126,219 @@ const CodeToFlowchartParser = (code, layout = "LR") => {
     }
   };
 
-  try {
-    let prevId = addNode("Start", "start");
-    nodeStack.push(prevId);
+  // Extract condition from if/while/for statements
+  const extractCondition = (statement) => {
+    const match = statement.match(/\((.*?)\)/);
+    if (match) {
+      return match[1].trim();
+    }
+    return statement;
+  };
 
-    for (let line of lines) {
+  // Format condition for better readability
+  const formatCondition = (condition) => {
+    // Handle common comparison operators
+    return condition
+      .replace(/===/g, "==")
+      .replace(/!==/g, "!=")
+      .replace(/<=/g, "less than or equal to")
+      .replace(/>=/g, "greater than or equal to")
+      .replace(/</g, "less than")
+      .replace(/>/g, "greater than")
+      .replace(/==/g, "equal to")
+      .replace(/!=/g, "not equal to")
+      .replace(/&&/g, "and")
+      .replace(/\|\|/g, "or");
+  };
+
+  try {
+    const lines = code.split("\n").filter((line) => line.trim());
+    let prevId = addNode("Start", "start");
+
+    // Track the main flow
+    let currentFlow = prevId;
+    let pendingEnds = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       const trimmed = line.trim();
 
       // Skip empty lines and comments
-      if (!trimmed || trimmed.startsWith("//")) continue;
+      if (!trimmed || trimmed.startsWith("//") || trimmed.startsWith("/*")) continue;
 
       // Function definitions
       if (trimmed.match(/^(async\s+)?function\s+\w+\s*\(/i)) {
         const name = trimmed.match(/function\s+(\w+)/i)?.[1] || "Function";
-        prevId = addNode(`Function: ${name}`, "process");
-        addEdge(nodeStack[nodeStack.length - 1], prevId);
-        nodeStack.push(prevId);
+        const funcId = addNode(`Function: ${name}`, "function");
+        addEdge(currentFlow, funcId);
+        currentFlow = funcId;
+        controlStack.push({ type: 'function', id: funcId });
         continue;
       }
 
       // Variable declarations and assignments
       if (trimmed.match(/^(let|const|var)\s+\w+\s*=/)) {
-        const varName = trimmed.match(/(?:let|const|var)\s+(\w+)/)[1];
-        const value = trimmed
-          .substring(trimmed.indexOf("=") + 1)
-          .trim()
-          .substring(0, 30);
-        prevId = addNode(`${varName} = ${value}`, "process");
-        addEdge(nodeStack[nodeStack.length - 1], prevId);
+        const varMatch = trimmed.match(/(?:let|const|var)\s+(\w+)\s*=\s*(.+)$/);
+        if (varMatch) {
+          const varName = varMatch[1];
+          const value = varMatch[2].substring(0, 30);
+          const varId = addNode(`${varName} = ${value}`, "process");
+          addEdge(currentFlow, varId);
+          currentFlow = varId;
+        }
         continue;
       }
 
       // If statements
       if (trimmed.match(/^if\s*\(/)) {
-        const condition = trimmed
-          .substring(trimmed.indexOf("(") + 1, trimmed.lastIndexOf(")"))
-          .substring(0, 40);
-        const decisionId = addNode(`${condition}?`, "decision");
-        addEdge(nodeStack[nodeStack.length - 1], decisionId);
-        nodeStack.push(decisionId);
-        prevId = decisionId;
+        const condition = extractCondition(trimmed);
+        const formattedCondition = formatCondition(condition);
+        const decisionId = addNode(formattedCondition, "decision");
+        addEdge(currentFlow, decisionId);
+
+        // Push decision context
+        decisionStack.push({
+          decisionId,
+          yesBranch: null,
+          noBranch: null,
+          endMerge: null
+        });
+
+        currentFlow = decisionId;
         continue;
       }
 
       // Else statements
-      if (trimmed === "else") {
-        const decisionId = nodeStack[nodeStack.length - 1];
-        prevId = addNode("Alternative path", "process");
-        addEdge(decisionId, prevId, "No");
+      if (trimmed === "else" || trimmed.startsWith("else ")) {
+        if (decisionStack.length > 0) {
+          const currentDecision = decisionStack[decisionStack.length - 1];
+
+          // Create the "No" branch if not already created
+          if (!currentDecision.noBranch) {
+            const elseId = addNode("Else path", "process");
+            addEdge(currentDecision.decisionId, elseId, "No");
+            currentDecision.noBranch = elseId;
+            currentFlow = elseId;
+          }
+        }
         continue;
       }
 
       // For loops
       if (trimmed.match(/^for\s*\(/)) {
-        const loopMatch = trimmed.match(/for\s*\(\s*(\w+)\s*in\s+(\w+)\)/);
-        const loopMatch2 = trimmed.match(
-          /for\s*\(\s*let\s+(\w+)\s*=\s*(\d+);\s*(\w+)\s*<\s*(\d+)/,
-        );
+        const condition = extractCondition(trimmed);
+        const loopId = addNode(`Loop: ${condition}`, "decision");
+        addEdge(currentFlow, loopId);
 
-        let loopText = "Loop";
-        if (loopMatch) loopText = `for ${loopMatch[1]} in ${loopMatch[2]}`;
-        else if (loopMatch2)
-          loopText = `for ${loopMatch2[1]}=${loopMatch2[2]}; ${loopMatch2[3]}<${loopMatch2[4]}`;
+        // Push loop context
+        loopStack.push({
+          loopId,
+          condition,
+          iterationVar: null
+        });
 
-        const loopId = addNode(loopText, "decision");
-        addEdge(nodeStack[nodeStack.length - 1], loopId);
-        nodeStack.push(loopId);
-        prevId = loopId;
+        currentFlow = loopId;
         continue;
       }
 
       // While loops
       if (trimmed.match(/^while\s*\(/)) {
-        const condition = trimmed
-          .substring(trimmed.indexOf("(") + 1, trimmed.lastIndexOf(")"))
-          .substring(0, 40);
-        const loopId = addNode(`while(${condition})`, "decision");
-        addEdge(nodeStack[nodeStack.length - 1], loopId);
-        nodeStack.push(loopId);
-        prevId = loopId;
-        continue;
-      }
+        const condition = extractCondition(trimmed);
+        const formattedCondition = formatCondition(condition);
+        const loopId = addNode(`While: ${formattedCondition}`, "decision");
+        addEdge(currentFlow, loopId);
 
-      // Console.log and other function calls
-      if (trimmed.match(/console\.(log|error|warn)|print\(|return\s+/)) {
-        prevId = addNode(trimmed.substring(0, 45), "io");
-        addEdge(nodeStack[nodeStack.length - 1], prevId);
-        if (trimmed.startsWith("return")) {
-          const endId = addNode("End", "end");
-          addEdge(prevId, endId);
-        }
+        // Push loop context
+        loopStack.push({
+          loopId,
+          condition,
+          iterationVar: null
+        });
+
+        currentFlow = loopId;
         continue;
       }
 
       // Return statements
       if (trimmed.startsWith("return")) {
         const returnVal = trimmed.substring(6).trim().substring(0, 35);
-        prevId = addNode(`return ${returnVal}`, "io");
-        addEdge(nodeStack[nodeStack.length - 1], prevId);
+        const returnId = addNode(`Return: ${returnVal}`, "io");
+        addEdge(currentFlow, returnId);
+
         const endId = addNode("End", "end");
-        addEdge(prevId, endId);
+        addEdge(returnId, endId);
+        currentFlow = endId;
+
+        // Close any open control structures
+        if (decisionStack.length > 0) {
+          const currentDecision = decisionStack.pop();
+          if (currentDecision.yesBranch && !currentDecision.noBranch) {
+            // Add "No" branch to end
+            addEdge(currentDecision.decisionId, currentFlow, "No");
+          }
+        }
+        continue;
+      }
+
+      // Console.log and output statements
+      if (trimmed.match(/console\.(log|error|warn)|print\(|alert\(/)) {
+        const outputText = trimmed.substring(0, 45);
+        const outputId = addNode(outputText, "io");
+        addEdge(currentFlow, outputId);
+        currentFlow = outputId;
         continue;
       }
 
       // Regular statements
       if (trimmed && !trimmed.match(/^[{}]/)) {
-        prevId = addNode(trimmed.substring(0, 45), "process");
-        addEdge(nodeStack[nodeStack.length - 1], prevId);
+        const statementId = addNode(trimmed.substring(0, 45), "process");
+
+        // If we're in a decision context, this is likely the "Yes" branch
+        if (decisionStack.length > 0) {
+          const currentDecision = decisionStack[decisionStack.length - 1];
+          if (!currentDecision.yesBranch) {
+            addEdge(currentDecision.decisionId, statementId, "Yes");
+            currentDecision.yesBranch = statementId;
+          } else {
+            addEdge(currentFlow, statementId);
+          }
+        } else {
+          addEdge(currentFlow, statementId);
+        }
+
+        currentFlow = statementId;
+      }
+
+      // Handle closing braces
+      if (trimmed === "}") {
+        // Close decision contexts
+        if (decisionStack.length > 0) {
+          const currentDecision = decisionStack[decisionStack.length - 1];
+          if (currentDecision.yesBranch && currentDecision.noBranch) {
+            // Create merge point
+            const mergeId = addNode("Continue", "process");
+            addEdge(currentDecision.yesBranch, mergeId);
+            addEdge(currentDecision.noBranch, mergeId);
+            currentFlow = mergeId;
+            decisionStack.pop();
+          }
+        }
+
+        // Close loop contexts
+        if (loopStack.length > 0) {
+          const currentLoop = loopStack[loopStack.length - 1];
+          // Loop back to condition
+          addEdge(currentFlow, currentLoop.loopId);
+          loopStack.pop();
+        }
       }
     }
 
-    // Add final end node
-    const endId = addNode("End", "end");
-    addEdge(prevId, endId);
+    // Add final end node if not already added
+    if (!currentFlow.includes("node") || currentFlow === prevId) {
+      const endId = addNode("End", "end");
+      addEdge(currentFlow, endId);
+    }
 
     return mermaidCode;
   } catch (err) {
@@ -289,24 +388,21 @@ const Flowchart = ({ code, source, onSourceChange }) => {
   return (
     <div className="h-full w-full bg-[#070d1f] flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="border-b border-white/10 bg-surface/30 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-6">
-          <div>
-            <h2 className="text-lg font-headline font-bold tracking-widest uppercase text-white flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary">
-                account_tree
-              </span>
+      <div className="border-b border-white/10 bg-surface/30 px-6 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-primary text-lg">
+              account_tree
+            </span>
+            <h2 className="text-base font-headline font-bold tracking-widest uppercase text-white">
               Code Flowchart
             </h2>
-            <p className="text-xs text-slate-400 mt-1">
-              Real-time visualization of your code logic
-            </p>
           </div>
 
           {/* Source Selector */}
-          <div className="flex items-center gap-2 bg-surface-container rounded-lg p-1">
+          <div className="flex items-center bg-surface-container rounded-md p-0.5">
             <button
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded text-xs font-medium transition-all flex items-center gap-1.5 ${
                 source === "shared"
                   ? "bg-primary text-white"
                   : "text-slate-400 hover:text-white"
@@ -320,7 +416,7 @@ const Flowchart = ({ code, source, onSourceChange }) => {
               Shared
             </button>
             <button
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded text-xs font-medium transition-all flex items-center gap-1.5 ${
                 source === "personal"
                   ? "bg-primary text-white"
                   : "text-slate-400 hover:text-white"
@@ -334,40 +430,39 @@ const Flowchart = ({ code, source, onSourceChange }) => {
           </div>
         </div>
 
-        {/* Zoom Controls */}
-        <div className="flex items-center gap-2">
+        {/* Controls */}
+        <div className="flex items-center gap-1">
           <button
             onClick={handleZoomOut}
-            className="p-2 rounded-lg bg-surface-container border border-white/10 text-white hover:bg-surface-container-high transition"
+            className="w-10 h-10 rounded-md bg-surface-container border border-white/10 text-white hover:bg-surface-container-high transition flex items-center justify-center"
             title="Zoom Out"
           >
             <span className="material-symbols-outlined text-base">
               zoom_out
             </span>
           </button>
-          <span className="px-4 py-2 bg-surface-container rounded-lg text-white text-sm font-semibold min-w-[60px] text-center">
+          <div className="px-3 py-2 bg-surface-container rounded-md text-white text-sm font-medium min-w-[60px] text-center">
             {zoom}%
-          </span>
+          </div>
           <button
             onClick={handleZoomIn}
-            className="p-2 rounded-lg bg-surface-container border border-white/10 text-white hover:bg-surface-container-high transition"
+            className="w-10 h-10 rounded-md bg-surface-container border border-white/10 text-white hover:bg-surface-container-high transition flex items-center justify-center"
             title="Zoom In"
           >
             <span className="material-symbols-outlined text-base">zoom_in</span>
           </button>
           <button
             onClick={handleResetZoom}
-            className="p-2 rounded-lg bg-surface-container border border-white/10 text-white hover:bg-surface-container-high transition"
+            className="w-10 h-10 rounded-md bg-surface-container border border-white/10 text-white hover:bg-surface-container-high transition flex items-center justify-center"
             title="Reset Zoom"
           >
             <span className="material-symbols-outlined text-base">
               zoom_out_map
             </span>
           </button>
-          <div className="w-px h-6 bg-white/10"></div>
           <button
             onClick={toggleLayout}
-            className="p-2 rounded-lg bg-surface-container border border-white/10 text-white hover:bg-surface-container-high transition"
+            className="w-10 h-10 rounded-md bg-surface-container border border-white/10 text-white hover:bg-surface-container-high transition flex items-center justify-center"
             title="Toggle Layout (Horizontal/Vertical)"
           >
             <span className="material-symbols-outlined text-base">

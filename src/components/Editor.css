@@ -1,0 +1,100 @@
+/* Custom CodeMirror styling to match deep blue theme */
+.CodeMirror {
+  background: #0f172a !important;
+  color: #f1f5f9 !important;
+  border: none !important;
+  font-family: 'JetBrains Mono', 'Consolas', 'Monaco', monospace !important;
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+}
+
+/* Remove gray strip from line numbers */
+.CodeMirror-gutters {
+  background: transparent !important;
+  border-right: none !important;
+  color: #64748b !important;
+}
+
+/* Line numbers styling */
+.CodeMirror-linenumber {
+  color: #64748b !important;
+  background: transparent !important;
+  padding: 0 4px 0 8px !important;
+  min-width: 2.5em !important;
+  text-align: left !important;
+}
+
+/* Active line styling */
+.CodeMirror-activeline .CodeMirror-linenumber {
+  color: #60a5fa !important;
+  background: #1e293b !important;
+}
+
+/* Selected text */
+.CodeMirror-selected {
+  background: #1e40af !important;
+}
+
+/* Cursor */
+.CodeMirror-cursor {
+  border-left: 2px solid #60a5fa !important;
+}
+
+/* Matching brackets */
+.CodeMirror-matchingbracket {
+  background: #1e40af !important;
+  color: #f1f5f9 !important;
+}
+
+/* Scrollbar */
+.CodeMirror-scrollbar-filler,
+.CodeMirror-gutter-filler {
+  background: #0f172a !important;
+}
+
+.CodeMirror-vscrollbar,
+.CodeMirror-hscrollbar {
+  background: #1e293b !important;
+}
+
+/* Comments */
+.CodeMirror .cm-comment {
+  color: #64748b !important;
+  font-style: italic !important;
+}
+
+/* Keywords */
+.CodeMirror .cm-keyword {
+  color: #60a5fa !important;
+  font-weight: bold !important;
+}
+
+/* Strings */
+.CodeMirror .cm-string {
+  color: #10b981 !important;
+}
+
+/* Numbers */
+.CodeMirror .cm-number {
+  color: #f59e0b !important;
+}
+
+/* Functions */
+.CodeMirror .cm-def {
+  color: #8b5cf6 !important;
+}
+
+/* Variables */
+.CodeMirror .cm-variable {
+  color: #f1f5f9 !important;
+}
+
+/* Operators */
+.CodeMirror .cm-operator {
+  color: #60a5fa !important;
+}
+
+/* Punctuation */
+.CodeMirror .cm-punctuation {
+  color: #94a3b8 !important;
+}

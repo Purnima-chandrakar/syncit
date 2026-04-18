@@ -389,6 +389,9 @@ const EditorPage = () => {
         copyRoomId={copyRoomId}
         username={location.state?.username}
         leaveRoom={leaveRoom}
+        handleSaveFile={handleSaveFile}
+        handleOpenFile={handleOpenFile}
+        activeTab={activeTab}
       />
 
       <main className="flex-1 mt-12 flex flex-col relative z-10 w-full max-w-[1920px] mx-auto">
@@ -470,40 +473,14 @@ const EditorPage = () => {
               {/* Editor Component wrapper */}
               <div className="flex-[4] flex flex-col precision-border border-t-0 border-l-0 border-r-0 border-b-0 z-10 w-full">
                 {(activeTab === "shared" || activeTab === "personal") && (
-                  <div className="bg-surface-container-low px-4 py-2 flex items-center justify-between border-b border-white/5">
-                    <div className="flex items-center gap-4">
-                      <span className="text-[10px] font-headline uppercase tracking-widest text-on-surface-variant">
-                        {activeTab}.js
-                      </span>
-                      <div className="flex gap-1">
-                        <span className="w-2 h-2 rounded-full bg-error/40"></span>
-                        <span className="w-2 h-2 rounded-full bg-secondary-dim/40"></span>
-                        <span className="w-2 h-2 rounded-full bg-primary-dim/40"></span>
-                      </div>
-                    </div>
-                    <div className="flex gap-4 items-center">
-                      <span
-                        className="material-symbols-outlined text-on-surface-variant text-lg cursor-pointer hover:text-on-surface"
-                        onClick={handleSaveFile}
-                        title="Save File"
-                      >
-                        save
-                      </span>
-                      <div className="relative">
-                        <label
-                          htmlFor="file-upload"
-                          className="material-symbols-outlined text-on-surface-variant text-lg cursor-pointer hover:text-on-surface"
-                          title="Open File"
-                        >
-                          file_upload
-                        </label>
-                        <input
-                          id="file-upload"
-                          type="file"
-                          className="hidden"
-                          onChange={handleOpenFile}
-                        />
-                      </div>
+                  <div className="bg-surface-container-low px-4 py-2 flex items-center gap-4 border-b border-white/5">
+                    <span className="text-[10px] font-headline uppercase tracking-widest text-on-surface-variant">
+                      {activeTab}.js
+                    </span>
+                    <div className="flex gap-1">
+                      <span className="w-2 h-2 rounded-full bg-error/40"></span>
+                      <span className="w-2 h-2 rounded-full bg-secondary-dim/40"></span>
+                      <span className="w-2 h-2 rounded-full bg-primary-dim/40"></span>
                     </div>
                   </div>
                 )}
