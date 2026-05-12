@@ -111,11 +111,12 @@ const Editor = forwardRef(
       };
     }, []);
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
       if (editorRef.current) {
         editorRef.current.setOption("readOnly", disabled ? "nocursor" : false);
       }
-    }, [disabled]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [disabled]);
 
     // Network updates are handled at the page level to avoid leaking into personal tab
     // This component is now presentation-only with optional emit on local change.
