@@ -52,9 +52,6 @@ const AnalyticsPanel = ({ clients, adminId, progressMap, socket }) => {
 
         // Auto-detect stuck: no activity for 60 seconds AND not already marked as stuck
         if (timeSinceActivity > 60000 && info.status !== "stuck") {
-          // Auto-increment stuck counter
-          setAutoStuckCount((prev) => prev + 1);
-
           // Emit to server to update student status
           socket.emit("UPDATE_STUDENT_STATUS", {
             roomId: socket.roomId || "",
