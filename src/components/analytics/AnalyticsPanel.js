@@ -18,9 +18,6 @@ const isErrorRecent = (lastErrorTime) => {
 
 const AnalyticsPanel = ({ clients, adminId, progressMap, socket }) => {
   const [expandedErrorId, setExpandedErrorId] = useState(null);
-
-  // Auto-detect stuck students (no activity for 1 minute) and auto-increment stuck counter
-  const [autoStuckCount, setAutoStuckCount] = useState(0);
   const sortedClients = [...clients].sort((a, b) => {
     const aIsAdmin = a.socketId === adminId ? -1 : 0;
     const bIsAdmin = b.socketId === adminId ? -1 : 0;
@@ -93,7 +90,7 @@ const AnalyticsPanel = ({ clients, adminId, progressMap, socket }) => {
     }, 30000); // Check every 30 seconds
 
     return () => clearInterval(checkInterval);
-  }, [socket, adminId, studentClients.length]);
+  }, [socket, adminId, progressMap, studentClients]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Calculate aggregates
   let stuckCount = 0;

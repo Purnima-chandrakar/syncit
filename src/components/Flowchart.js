@@ -63,10 +63,10 @@ mermaid.initialize({
     critBkgColor: "#7f1d1d",
     todayLineColor: "#3b82f6",
     personLabel: "#f1f5f9",
-    sectionBkgColor: "#1e293b",
-    altSectionBkgColor: "#0f172a",
-    sectionBorderColor: "#475569",
-    altSectionBorderColor: "#64748b",
+    sectionBkgColorVal: "#1e293b",
+    altSectionBkgColorVal: "#0f172a",
+    sectionBorderColorVal: "#475569",
+    altSectionBorderColorVal: "#64748b",
     scale: 1,
     flowchart: {
       nodeSpacing: 50,
@@ -157,7 +157,7 @@ const CodeToFlowchartParser = (code, layout = "LR") => {
 
     // Track the main flow
     let currentFlow = prevId;
-    let pendingEnds = [];
+    // let pendingEnds = []; // TODO: implement end tracking if needed
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];

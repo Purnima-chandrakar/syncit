@@ -115,7 +115,7 @@ const Editor = forwardRef(
       if (editorRef.current) {
         editorRef.current.setOption("readOnly", disabled ? "nocursor" : false);
       }
-    }, [disabled]);
+    }, [disabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Network updates are handled at the page level to avoid leaking into personal tab
     // This component is now presentation-only with optional emit on local change.
