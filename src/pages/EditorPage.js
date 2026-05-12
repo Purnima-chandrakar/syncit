@@ -47,8 +47,7 @@ const EditorPage = () => {
     activeTabRef.current = activeTab;
   }, [activeTab]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
+  useEffect(() => { // eslint-disable-line react-hooks/exhaustive-deps
     const init = async () => {
       socketRef.current = await initSocket();
 
