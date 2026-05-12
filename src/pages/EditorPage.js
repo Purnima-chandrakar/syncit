@@ -47,7 +47,8 @@ const EditorPage = () => {
     activeTabRef.current = activeTab;
   }, [activeTab]);
 
-  useEffect(() => { // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
     const init = async () => {
       socketRef.current = await initSocket();
 
@@ -223,7 +224,7 @@ const EditorPage = () => {
         socketRef.current.disconnect();
       }
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function copyRoomId() {
     try {
