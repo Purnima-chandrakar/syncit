@@ -47,7 +47,6 @@ const EditorPage = () => {
     activeTabRef.current = activeTab;
   }, [activeTab]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const init = async () => {
       socketRef.current = await initSocket();
@@ -224,28 +223,7 @@ const EditorPage = () => {
         socketRef.current.disconnect();
       }
     };
-  }, [
-    roomId,
-    location.state?.username,
-    clients,
-    reactNavigator,
-    setHost,
-    setClients,
-    setEditingBlocked,
-    setAdminId,
-    setPermissions,
-    setHands,
-    setActiveEditorId,
-    setProgressMap,
-    socketRef,
-    codeRef,
-    activeTabRef,
-    editorComponentRef,
-    displayRef,
-    personalCodeRef,
-    initSocket,
-    ACTIONS
-  ]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function copyRoomId() {
     try {

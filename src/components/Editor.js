@@ -109,7 +109,7 @@ const Editor = forwardRef(
           editorRef.current = null;
         }
       };
-    }, []);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
       if (editorRef.current) {
