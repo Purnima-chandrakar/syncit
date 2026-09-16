@@ -126,6 +126,23 @@ const CodeToFlowchartParser = (code, layout = "LR") => {
       return [merge];
     }
 
+    if (statement.type === "SwitchStatement") {
+      const decision = addNode(`switch (${label(statement.discriminant)})`, "decision");
+      connectAll(incoming, decision);
+      const merge = addNode("Continue", "process");
+      statement.cases.forEach((caseStatement) => {
+        const caseLabel = caseStatement.test
+          ? `case ${label(caseStatement.test)}`
+          : "default";
+        const caseNode = addNode(caseLabel, "process");
+        connect(decision, caseNode, caseLabel);
+        const exits = buildStatements(caseStatement.consequent, [caseNode]);
+        connectAll(exits, merge);
+      });
+      connect(decision, merge, "No case matched");
+      return [merge];
+    }
+
     if (["ForStatement", "ForInStatement", "ForOfStatement", "WhileStatement", "DoWhileStatement"].includes(statement.type)) {
       const loop = addNode(label(statement), "decision");
       connectAll(incoming, loop);
@@ -192,7 +209,7 @@ const CodeToFlowchartParser = (code, layout = "LR") => {
       const definition = shape === "start" || shape === "end"
         ? `${id}((${text}))`
         : shape === "decision"
-          ? `${id}{${text}}`
+          ? `${id}{"${text}"}`
           : shape === "io"
             ? `${id}[["${text}"]]`
             : `${id}["${text}"]`;
@@ -242,6 +259,9 @@ const TextToFlowchartParser = (code, language, layout = "LR") => {
     if (context.type === "loop") {
       connectAll(current, context.decision, "Repeat");
       connect(context.decision, context.merge, "Done");
+    } else if (context.type === "switch") {
+      connectAll(current, context.merge);
+      connect(context.decision, context.merge, "No case matched");
     } else {
       connectAll(current, context.merge);
       if (!context.hasElse) connect(context.noEntry, context.merge);
@@ -274,16 +294,27 @@ const TextToFlowchartParser = (code, language, layout = "LR") => {
     if (line === "{" || line === "}") return;
     if (line.startsWith("//") || line.startsWith("#") || line.startsWith("/*")) return;
 
-    if (/^(else\b|elif\b)/.test(line)) {
+    if (/^(else\s+if\b|else\b|elif\b)/.test(line)) {
       const context = stack[stack.length - 1];
       if (context?.type === "if") {
         connectAll(current, context.merge);
         context.hasElse = true;
-        if (line.startsWith("elif")) {
-          const branch = addNode(line, "decision");
+        if (line.startsWith("elif") || line.startsWith("else if")) {
+          const condition = line
+            .replace(/^elif\s*/, "")
+            .replace(/^else\s+if\s*/, "")
+            .replace(/^\(/, "")
+            .replace(/\)\s*[:{]?$/, "")
+            .trim();
+          const branch = addNode(`if (${condition})`, "decision");
           connect(context.decision, branch, "No");
-          current = [branch];
+          const yesEntry = addNode("Yes", "process");
+          const noEntry = addNode("No", "process");
+          connect(branch, yesEntry, "Yes");
+          connect(branch, noEntry, "No");
+          current = [yesEntry];
           context.decision = branch;
+          context.noEntry = noEntry;
         } else {
           current = [context.noEntry];
         }
@@ -291,8 +322,28 @@ const TextToFlowchartParser = (code, language, layout = "LR") => {
       return;
     }
 
+    const switchMatch = line.match(/^switch\s*\((.*)\)\s*\{?$/);
+    const caseMatch = line.match(/^(case\s+.+?|default)\s*:/);
     const ifMatch = line.match(/^if\s*\((.*)\)|^if\s+(.+?)(?::|\s*\{)?$/);
     const loopMatch = line.match(/^(for|while|do)\b\s*(.*?)(?:\{|:)?$/);
+    if (switchMatch) {
+      const decision = addNode(`switch (${switchMatch[1]})`, "decision");
+      connectAll(current, decision);
+      const merge = addNode("Continue", "process");
+      stack.push({ type: "switch", decision, merge, indent });
+      current = [];
+      return;
+    }
+    if (caseMatch) {
+      const context = stack[stack.length - 1];
+      if (context?.type === "switch") {
+        connectAll(current, context.merge);
+        const caseNode = addNode(caseMatch[1], "process");
+        connect(context.decision, caseNode, caseMatch[1]);
+        current = [caseNode];
+      }
+      return;
+    }
     if (ifMatch) {
       const condition = (ifMatch[1] || ifMatch[2] || line).trim();
       const decision = addNode(`if (${condition})`, "decision");
@@ -322,6 +373,9 @@ const TextToFlowchartParser = (code, language, layout = "LR") => {
         const end = addNode("END", "end");
         connect(result, end);
         current = [];
+      } else if (/^break\b/.test(line) && stack[stack.length - 1]?.type === "switch") {
+        connect(result, stack[stack.length - 1].merge);
+        current = [];
       } else {
         current = [result];
       }
@@ -341,7 +395,7 @@ const TextToFlowchartParser = (code, language, layout = "LR") => {
     const definition = shape === "start" || shape === "end"
       ? `${id}((${text}))`
       : shape === "decision"
-        ? `${id}{${text}}`
+        ? `${id}{"${text}"}`
         : shape === "io"
           ? `${id}[["${text}"]]`
           : `${id}["${text}"]`;
