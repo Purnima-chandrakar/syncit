@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import mermaid from "mermaid";
+import { parse } from "@babel/parser";
 
 // Initialize mermaid once
 mermaid.initialize({
@@ -82,291 +83,143 @@ mermaid.initialize({
 
 const CodeToFlowchartParser = (code, layout = "LR") => {
   let nodeId = 0;
-  let mermaidCode = `flowchart ${layout}\n`;
+  const nodes = [];
+  const edges = [];
+  const source = code;
 
-  // Track control flow structure
-  const controlStack = [];
-  const loopStack = [];
-  const decisionStack = [];
-
+  const label = (node) => source.slice(node.start, node.end).replace(/\s+/g, " ").trim();
+  const safeLabel = (value) => value.replace(/"/g, "&quot;").replace(/[{}]/g, "").slice(0, 90);
   const addNode = (text, shape = "process") => {
     const id = `node${nodeId++}`;
-    let formatted = text.replace(/"/g, "'").substring(0, 60);
-
-    switch (shape) {
-      case "start":
-        mermaidCode += `    ${id}((START));\n`;
-        break;
-      case "end":
-        mermaidCode += `    ${id}((END));\n`;
-        break;
-      case "decision":
-        mermaidCode += `    ${id}{${formatted}};\n`;
-        break;
-      case "io":
-        mermaidCode += `    ${id}[["${formatted}"]];\n`;
-        break;
-      case "process":
-        mermaidCode += `    ${id}["${formatted}"];\n`;
-        break;
-      case "function":
-        mermaidCode += `    ${id}["${formatted}"];\n`;
-        break;
-      default:
-        mermaidCode += `    ${id}["${formatted}"];\n`;
-    }
+    nodes.push({ id, text: safeLabel(text), shape });
     return id;
   };
+  const connect = (from, to, edgeLabel = "") => {
+    if (from && to) edges.push({ from, to, label: safeLabel(edgeLabel) });
+  };
+  const connectAll = (froms, to, edgeLabel = "") => froms.forEach((from) => connect(from, to, edgeLabel));
 
-  const addEdge = (from, to, label = "") => {
-    if (label) {
-      mermaidCode += `    ${from} -->|${label}| ${to};\n`;
-    } else {
-      mermaidCode += `    ${from} --> ${to};\n`;
+  const parseStatement = (statement, incoming) => {
+    if (!statement) return incoming;
+
+    if (statement.type === "IfStatement") {
+      const decision = addNode(`if (${label(statement.test)})`, "decision");
+      connectAll(incoming, decision);
+      const yesExit = buildStatement(statement.consequent, [decision]);
+      const noExit = statement.alternate
+        ? buildStatement(statement.alternate, [decision])
+        : [decision];
+      const merge = addNode("Continue", "process");
+      connectAll(yesExit, merge, "Yes");
+      connectAll(noExit, merge, "No");
+      return [merge];
     }
+
+    if (["ForStatement", "ForInStatement", "ForOfStatement", "WhileStatement", "DoWhileStatement"].includes(statement.type)) {
+      const loop = addNode(label(statement), "decision");
+      connectAll(incoming, loop);
+      const bodyExit = buildStatement(statement.body, [loop]);
+      connectAll(bodyExit, loop, "Repeat");
+      const merge = addNode("Continue", "process");
+      connect(loop, merge, "Done");
+      return [merge];
+    }
+
+    if (statement.type === "ReturnStatement" || statement.type === "ThrowStatement") {
+      const result = addNode(label(statement), "io");
+      const end = addNode("END", "end");
+      connectAll(incoming, result);
+      connect(result, end);
+      return [];
+    }
+
+    if (statement.type === "BreakStatement" || statement.type === "ContinueStatement") {
+      const control = addNode(label(statement), "process");
+      connectAll(incoming, control);
+      return [control];
+    }
+
+    if (statement.type === "BlockStatement") return buildStatements(statement.body, incoming);
+
+    const text = label(statement);
+    if (!text) return incoming;
+    const node = addNode(text, statement.type === "ExpressionStatement" ? "process" : "function");
+    connectAll(incoming, node);
+    return [node];
   };
 
-  // Extract condition from if/while/for statements
-  const extractCondition = (statement) => {
-    const match = statement.match(/\((.*?)\)/);
-    if (match) {
-      return match[1].trim();
-    }
-    return statement;
-  };
-
-  // Format condition for better readability
-  const formatCondition = (condition) => {
-    // Handle common comparison operators
-    return condition
-      .replace(/===/g, "==")
-      .replace(/!==/g, "!=")
-      .replace(/<=/g, "less than or equal to")
-      .replace(/>=/g, "greater than or equal to")
-      .replace(/</g, "less than")
-      .replace(/>/g, "greater than")
-      .replace(/==/g, "equal to")
-      .replace(/!=/g, "not equal to")
-      .replace(/&&/g, "and")
-      .replace(/\|\|/g, "or");
+  const buildStatement = (statement, incoming) => parseStatement(statement, incoming);
+  const buildStatements = (statements, incoming) => {
+    let exits = incoming;
+    statements.forEach((statement) => { exits = buildStatement(statement, exits); });
+    return exits;
   };
 
   try {
-    const lines = code.split("\n").filter((line) => line.trim());
-    let prevId = addNode("Start", "start");
+    const ast = parse(code, {
+      sourceType: "unambiguous",
+      errorRecovery: false,
+      plugins: ["jsx", "typescript"],
+    });
+    const start = addNode("START", "start");
+    const exits = buildStatements(ast.program.body, [start]);
+    const end = addNode("END", "end");
+    connectAll(exits.length ? exits : [start], end);
 
-    // Track the main flow
-    let currentFlow = prevId;
-    // let pendingEnds = []; // TODO: implement end tracking if needed
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const trimmed = line.trim();
-
-      // Skip empty lines and comments
-      if (!trimmed || trimmed.startsWith("//") || trimmed.startsWith("/*")) continue;
-
-      // Function definitions
-      if (trimmed.match(/^(async\s+)?function\s+\w+\s*\(/i)) {
-        const name = trimmed.match(/function\s+(\w+)/i)?.[1] || "Function";
-        const funcId = addNode(`Function: ${name}`, "function");
-        addEdge(currentFlow, funcId);
-        currentFlow = funcId;
-        controlStack.push({ type: 'function', id: funcId });
-        continue;
-      }
-
-      // Variable declarations and assignments
-      if (trimmed.match(/^(let|const|var)\s+\w+\s*=/)) {
-        const varMatch = trimmed.match(/(?:let|const|var)\s+(\w+)\s*=\s*(.+)$/);
-        if (varMatch) {
-          const varName = varMatch[1];
-          const value = varMatch[2].substring(0, 30);
-          const varId = addNode(`${varName} = ${value}`, "process");
-          addEdge(currentFlow, varId);
-          currentFlow = varId;
-        }
-        continue;
-      }
-
-      // If statements
-      if (trimmed.match(/^if\s*\(/)) {
-        const condition = extractCondition(trimmed);
-        const formattedCondition = formatCondition(condition);
-        const decisionId = addNode(formattedCondition, "decision");
-        addEdge(currentFlow, decisionId);
-
-        // Push decision context
-        decisionStack.push({
-          decisionId,
-          yesBranch: null,
-          noBranch: null,
-          endMerge: null
-        });
-
-        currentFlow = decisionId;
-        continue;
-      }
-
-      // Else statements
-      if (trimmed === "else" || trimmed.startsWith("else ")) {
-        if (decisionStack.length > 0) {
-          const currentDecision = decisionStack[decisionStack.length - 1];
-
-          // Create the "No" branch if not already created
-          if (!currentDecision.noBranch) {
-            const elseId = addNode("Else path", "process");
-            addEdge(currentDecision.decisionId, elseId, "No");
-            currentDecision.noBranch = elseId;
-            currentFlow = elseId;
-          }
-        }
-        continue;
-      }
-
-      // For loops
-      if (trimmed.match(/^for\s*\(/)) {
-        const condition = extractCondition(trimmed);
-        const loopId = addNode(`Loop: ${condition}`, "decision");
-        addEdge(currentFlow, loopId);
-
-        // Push loop context
-        loopStack.push({
-          loopId,
-          condition,
-          iterationVar: null
-        });
-
-        currentFlow = loopId;
-        continue;
-      }
-
-      // While loops
-      if (trimmed.match(/^while\s*\(/)) {
-        const condition = extractCondition(trimmed);
-        const formattedCondition = formatCondition(condition);
-        const loopId = addNode(`While: ${formattedCondition}`, "decision");
-        addEdge(currentFlow, loopId);
-
-        // Push loop context
-        loopStack.push({
-          loopId,
-          condition,
-          iterationVar: null
-        });
-
-        currentFlow = loopId;
-        continue;
-      }
-
-      // Return statements
-      if (trimmed.startsWith("return")) {
-        const returnVal = trimmed.substring(6).trim().substring(0, 35);
-        const returnId = addNode(`Return: ${returnVal}`, "io");
-        addEdge(currentFlow, returnId);
-
-        const endId = addNode("End", "end");
-        addEdge(returnId, endId);
-        currentFlow = endId;
-
-        // Close any open control structures
-        if (decisionStack.length > 0) {
-          const currentDecision = decisionStack.pop();
-          if (currentDecision.yesBranch && !currentDecision.noBranch) {
-            // Add "No" branch to end
-            addEdge(currentDecision.decisionId, currentFlow, "No");
-          }
-        }
-        continue;
-      }
-
-      // Console.log and output statements
-      if (trimmed.match(/console\.(log|error|warn)|print\(|alert\(/)) {
-        const outputText = trimmed.substring(0, 45);
-        const outputId = addNode(outputText, "io");
-        addEdge(currentFlow, outputId);
-        currentFlow = outputId;
-        continue;
-      }
-
-      // Regular statements
-      if (trimmed && !trimmed.match(/^[{}]/)) {
-        const statementId = addNode(trimmed.substring(0, 45), "process");
-
-        // If we're in a decision context, this is likely the "Yes" branch
-        if (decisionStack.length > 0) {
-          const currentDecision = decisionStack[decisionStack.length - 1];
-          if (!currentDecision.yesBranch) {
-            addEdge(currentDecision.decisionId, statementId, "Yes");
-            currentDecision.yesBranch = statementId;
-          } else {
-            addEdge(currentFlow, statementId);
-          }
-        } else {
-          addEdge(currentFlow, statementId);
-        }
-
-        currentFlow = statementId;
-      }
-
-      // Handle closing braces
-      if (trimmed === "}") {
-        // Close decision contexts
-        if (decisionStack.length > 0) {
-          const currentDecision = decisionStack[decisionStack.length - 1];
-          if (currentDecision.yesBranch && currentDecision.noBranch) {
-            // Create merge point
-            const mergeId = addNode("Continue", "process");
-            addEdge(currentDecision.yesBranch, mergeId);
-            addEdge(currentDecision.noBranch, mergeId);
-            currentFlow = mergeId;
-            decisionStack.pop();
-          }
-        }
-
-        // Close loop contexts
-        if (loopStack.length > 0) {
-          const currentLoop = loopStack[loopStack.length - 1];
-          // Loop back to condition
-          addEdge(currentFlow, currentLoop.loopId);
-          loopStack.pop();
-        }
-      }
-    }
-
-    // Add final end node if not already added
-    if (!currentFlow.includes("node") || currentFlow === prevId) {
-      const endId = addNode("End", "end");
-      addEdge(currentFlow, endId);
-    }
-
-    return mermaidCode;
+    const mermaidCode = [`flowchart ${layout}`];
+    nodes.forEach(({ id, text, shape }) => {
+      const definition = shape === "start" || shape === "end"
+        ? `${id}((${text}))`
+        : shape === "decision"
+          ? `${id}{${text}}`
+          : shape === "io"
+            ? `${id}[["${text}"]]`
+            : `${id}["${text}"]`;
+      mermaidCode.push(`    ${definition}`);
+    });
+    edges.forEach(({ from, to, label: edgeLabel }) => {
+      mermaidCode.push(`    ${from} -->${edgeLabel ? `|${edgeLabel}|` : ""} ${to}`);
+    });
+    return mermaidCode.join("\n");
   } catch (err) {
     console.error("Flowchart generation error:", err);
-    return 'flowchart TD\n    error["Error parsing code"]';
+    return null;
   }
 };
 
 const Flowchart = ({ code, source, onSourceChange }) => {
-  const [mermaidContent, setMermaidContent] = useState("");
+  const [renderedSvg, setRenderedSvg] = useState("");
+  const [renderError, setRenderError] = useState("");
   const [zoom, setZoom] = useState(100);
   const [layout, setLayout] = useState("LR"); // "LR" for horizontal, "TD" for vertical
   const containerRef = React.useRef(null);
 
   useEffect(() => {
-    if (code && code.trim()) {
-      const flowchartCode = CodeToFlowchartParser(code, layout);
-      setMermaidContent(flowchartCode);
+    let cancelled = false;
+    setRenderedSvg("");
+    setRenderError("");
 
-      // Render flowchart with mermaid after content updates
-      setTimeout(() => {
-        try {
-          mermaid.run();
-        } catch (err) {
-          console.error("Mermaid render error:", err);
-        }
-      }, 200);
+    if (!code || !code.trim()) return undefined;
+
+    const flowchartCode = CodeToFlowchartParser(code, layout);
+    if (!flowchartCode) {
+      setRenderError("The code could not be parsed for a flowchart.");
+      return undefined;
     }
+
+    mermaid
+      .render(`flowchart-${Date.now()}`, flowchartCode)
+      .then(({ svg }) => {
+        if (!cancelled) setRenderedSvg(svg);
+      })
+      .catch((err) => {
+        console.error("Mermaid render error:", err);
+        if (!cancelled) setRenderError("The flowchart could not be rendered.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [code, layout]);
 
   const handleZoomIn = () => {
@@ -557,12 +410,15 @@ const Flowchart = ({ code, source, onSourceChange }) => {
                 border-radius: 4px;
               }
             `}</style>
-            <div
-              key={`${layout}-${code.length}`}
-              className="mermaid inline-block"
-            >
-              {mermaidContent}
-            </div>
+            {renderError ? (
+              <p className="text-red-300 text-sm p-6">{renderError}</p>
+            ) : (
+              <div
+                key={`${layout}-${code.length}`}
+                className="mermaid inline-block"
+                dangerouslySetInnerHTML={{ __html: renderedSvg }}
+              />
+            )}
           </div>
         ) : (
           <div className="h-full flex items-center justify-center">
