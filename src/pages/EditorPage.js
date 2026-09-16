@@ -224,7 +224,28 @@ const EditorPage = () => {
         socketRef.current.disconnect();
       }
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    roomId,
+    location.state?.username,
+    clients,
+    reactNavigator,
+    setHost,
+    setClients,
+    setEditingBlocked,
+    setAdminId,
+    setPermissions,
+    setHands,
+    setActiveEditorId,
+    setProgressMap,
+    socketRef,
+    codeRef,
+    activeTabRef,
+    editorComponentRef,
+    displayRef,
+    personalCodeRef,
+    initSocket,
+    ACTIONS
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function copyRoomId() {
     try {
