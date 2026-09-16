@@ -3,8 +3,15 @@ import ACTIONS from "../Actions";
 
 const LANGUAGES = ["javascript", "python", "java", "c", "cpp"];
 
-const Terminal = ({ socketRef, roomId, codeRef, personalCodeRef, source = 'shared' }) => {
-  const [language, setLanguage] = useState("javascript");
+const Terminal = ({
+  socketRef,
+  roomId,
+  codeRef,
+  personalCodeRef,
+  source = "shared",
+  language = "javascript",
+  onLanguageChange,
+}) => {
   const [output, setOutput] = useState("");
   const [running, setRunning] = useState(false);
   const [inputValue, setInputValue] = useState("");
@@ -77,7 +84,7 @@ const Terminal = ({ socketRef, roomId, codeRef, personalCodeRef, source = 'share
         <select 
           className="bg-primary text-on-primary px-4 py-2 font-headline text-xs font-bold uppercase tracking-widest rounded-sm hover:brightness-110 transition-all focus:outline-none appearance-none cursor-pointer" 
           value={language} 
-          onChange={(e) => setLanguage(e.target.value)}
+          onChange={(e) => onLanguageChange?.(e.target.value)}
         >
           {LANGUAGES.map((l) => (
             <option key={l} value={l} className="bg-surface text-on-surface">

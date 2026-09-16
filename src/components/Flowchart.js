@@ -88,7 +88,14 @@ const CodeToFlowchartParser = (code, layout = "LR") => {
   const source = code;
 
   const label = (node) => source.slice(node.start, node.end).replace(/\s+/g, " ").trim();
-  const safeLabel = (value) => value.replace(/"/g, "&quot;").replace(/[{}]/g, "").slice(0, 90);
+  const safeLabel = (value) => value
+    .replace(/"/g, "&quot;")
+    .replace(/[{}]/g, "")
+    .replace(/\|/g, " or ")
+    .replace(/[;<>]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 90);
   const addNode = (text, shape = "process") => {
     const id = `node${nodeId++}`;
     nodes.push({ id, text: safeLabel(text), shape });
@@ -105,13 +112,17 @@ const CodeToFlowchartParser = (code, layout = "LR") => {
     if (statement.type === "IfStatement") {
       const decision = addNode(`if (${label(statement.test)})`, "decision");
       connectAll(incoming, decision);
-      const yesExit = buildStatement(statement.consequent, [decision]);
+      const yesEntry = addNode("Yes", "process");
+      connect(decision, yesEntry, "Yes");
+      const yesExit = buildStatement(statement.consequent, [yesEntry]);
+      const noEntry = addNode("No", "process");
+      connect(decision, noEntry, "No");
       const noExit = statement.alternate
-        ? buildStatement(statement.alternate, [decision])
-        : [decision];
+        ? buildStatement(statement.alternate, [noEntry])
+        : [noEntry];
       const merge = addNode("Continue", "process");
-      connectAll(yesExit, merge, "Yes");
-      connectAll(noExit, merge, "No");
+      connectAll(yesExit, merge);
+      connectAll(noExit, merge);
       return [merge];
     }
 
@@ -156,11 +167,21 @@ const CodeToFlowchartParser = (code, layout = "LR") => {
   };
 
   try {
-    const ast = parse(code, {
+    const parserOptions = {
       sourceType: "unambiguous",
       errorRecovery: false,
-      plugins: ["jsx", "typescript"],
-    });
+      allowAwaitOutsideFunction: true,
+      allowReturnOutsideFunction: true,
+    };
+    let ast;
+    try {
+      ast = parse(code, { ...parserOptions, plugins: ["jsx"] });
+    } catch (javascriptError) {
+      ast = parse(code, {
+        ...parserOptions,
+        plugins: ["jsx", "typescript"],
+      });
+    }
     const start = addNode("START", "start");
     const exits = buildStatements(ast.program.body, [start]);
     const end = addNode("END", "end");
@@ -183,16 +204,176 @@ const CodeToFlowchartParser = (code, layout = "LR") => {
     return mermaidCode.join("\n");
   } catch (err) {
     console.error("Flowchart generation error:", err);
-    return null;
+    return { error: err.message || "The code could not be parsed." };
   }
 };
 
-const Flowchart = ({ code, source, onSourceChange }) => {
+const TextToFlowchartParser = (code, language, layout = "LR") => {
+  let nodeId = 0;
+  const nodes = [];
+  const edges = [];
+  const isPython = language === "python";
+  const safeLabel = (value) => value
+    .replace(/"/g, "&quot;")
+    .replace(/[{}]/g, "")
+    .replace(/\|/g, " or ")
+    .replace(/[;<>]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 90);
+  const addNode = (text, shape = "process") => {
+    const id = `node${nodeId++}`;
+    nodes.push({ id, text: safeLabel(text), shape });
+    return id;
+  };
+  const connect = (from, to, edgeLabel = "") => {
+    if (from && to) edges.push({ from, to, label: safeLabel(edgeLabel) });
+  };
+  const connectAll = (froms, to, edgeLabel = "") => {
+    froms.forEach((from) => connect(from, to, edgeLabel));
+  };
+  const start = addNode("START", "start");
+  let current = [start];
+  const stack = [];
+
+  const closeContext = () => {
+    const context = stack.pop();
+    if (!context) return;
+    if (context.type === "loop") {
+      connectAll(current, context.decision, "Repeat");
+      connect(context.decision, context.merge, "Done");
+    } else {
+      connectAll(current, context.merge);
+      if (!context.hasElse) connect(context.noEntry, context.merge);
+    }
+    current = [context.merge];
+  };
+
+  const lines = code.split("\n");
+  lines.forEach((rawLine) => {
+    const trimmed = rawLine.trim();
+    if (!trimmed) return;
+
+    const indent = rawLine.match(/^\s*/)?.[0].replace(/\t/g, "    ").length || 0;
+    const isElseLine = /^(?:}\s*)?else\b|^elif\b/.test(trimmed);
+    if (isPython) {
+      while (stack.length && indent <= stack[stack.length - 1].indent && !isElseLine) {
+        closeContext();
+      }
+    }
+
+    let line = trimmed;
+    const combinedElse = /^}\s*else\b/.test(line);
+    if (combinedElse) line = line.replace(/^}\s*/, "");
+    const closingBraces = (combinedElse ? 0 : (line.match(/}/g) || []).length);
+    if (!isPython && closingBraces) {
+      for (let i = 0; i < closingBraces; i += 1) closeContext();
+      line = line.replace(/}/g, "").trim();
+      if (!line) return;
+    }
+    if (line === "{" || line === "}") return;
+    if (line.startsWith("//") || line.startsWith("#") || line.startsWith("/*")) return;
+
+    if (/^(else\b|elif\b)/.test(line)) {
+      const context = stack[stack.length - 1];
+      if (context?.type === "if") {
+        connectAll(current, context.merge);
+        context.hasElse = true;
+        if (line.startsWith("elif")) {
+          const branch = addNode(line, "decision");
+          connect(context.decision, branch, "No");
+          current = [branch];
+          context.decision = branch;
+        } else {
+          current = [context.noEntry];
+        }
+      }
+      return;
+    }
+
+    const ifMatch = line.match(/^if\s*\((.*)\)|^if\s+(.+?)(?::|\s*\{)?$/);
+    const loopMatch = line.match(/^(for|while|do)\b\s*(.*?)(?:\{|:)?$/);
+    if (ifMatch) {
+      const condition = (ifMatch[1] || ifMatch[2] || line).trim();
+      const decision = addNode(`if (${condition})`, "decision");
+      connectAll(current, decision);
+      const yesEntry = addNode("Yes", "process");
+      const noEntry = addNode("No", "process");
+      const merge = addNode("Continue", "process");
+      connect(decision, yesEntry, "Yes");
+      connect(decision, noEntry, "No");
+      stack.push({ type: "if", decision, noEntry, merge, hasElse: false, indent });
+      current = [yesEntry];
+      return;
+    }
+    if (loopMatch) {
+      const loop = addNode(`${loopMatch[1]} ${loopMatch[2]}`.trim(), "decision");
+      connectAll(current, loop);
+      const merge = addNode("Continue", "process");
+      stack.push({ type: "loop", decision: loop, merge, indent });
+      current = [loop];
+      return;
+    }
+
+    if (/^(return|throw|break|continue)\b/.test(line)) {
+      const result = addNode(line, "io");
+      connectAll(current, result);
+      if (/^(return|throw)\b/.test(line)) {
+        const end = addNode("END", "end");
+        connect(result, end);
+        current = [];
+      } else {
+        current = [result];
+      }
+      return;
+    }
+
+    const statement = addNode(line, /^(print|printf|System\.out|cout|console\.)/.test(line) ? "io" : "process");
+    connectAll(current, statement);
+    current = [statement];
+  });
+
+  while (stack.length) closeContext();
+  const end = addNode("END", "end");
+  connectAll(current.length ? current : [start], end);
+  const mermaidCode = [`flowchart ${layout}`];
+  nodes.forEach(({ id, text, shape }) => {
+    const definition = shape === "start" || shape === "end"
+      ? `${id}((${text}))`
+      : shape === "decision"
+        ? `${id}{${text}}`
+        : shape === "io"
+          ? `${id}[["${text}"]]`
+          : `${id}["${text}"]`;
+    mermaidCode.push(`    ${definition}`);
+  });
+  edges.forEach(({ from, to, label }) => {
+    mermaidCode.push(`    ${from} -->${label ? `|${label}|` : ""} ${to}`);
+  });
+  return mermaidCode.join("\n");
+};
+
+const detectLanguage = (code, selectedLanguage) => {
+  if (selectedLanguage !== "javascript") return selectedLanguage;
+  if (/^\s*#include\s*[<"]/.test(code) || /\bstd::/.test(code)) {
+    return "cpp";
+  }
+  if (/\b(public\s+static\s+void|System\.out\.|import\s+java\.)/.test(code)) {
+    return "java";
+  }
+  if (/^\s*(def|from\s+\w+\s+import|import\s+\w+)/m.test(code)) {
+    return "python";
+  }
+  return selectedLanguage;
+};
+
+const Flowchart = ({ code, source, onSourceChange, language = "javascript" }) => {
   const [renderedSvg, setRenderedSvg] = useState("");
   const [renderError, setRenderError] = useState("");
   const [zoom, setZoom] = useState(100);
   const [layout, setLayout] = useState("LR"); // "LR" for horizontal, "TD" for vertical
   const containerRef = React.useRef(null);
+  const effectiveLanguage = detectLanguage(code || "", language);
 
   useEffect(() => {
     let cancelled = false;
@@ -201,9 +382,13 @@ const Flowchart = ({ code, source, onSourceChange }) => {
 
     if (!code || !code.trim()) return undefined;
 
-    const flowchartCode = CodeToFlowchartParser(code, layout);
-    if (!flowchartCode) {
-      setRenderError("The code could not be parsed for a flowchart.");
+    const flowchartCode = effectiveLanguage === "javascript"
+      ? CodeToFlowchartParser(code, layout)
+      : TextToFlowchartParser(code, effectiveLanguage, layout);
+    if (!flowchartCode || flowchartCode.error) {
+      setRenderError(
+        flowchartCode?.error || "The code could not be parsed for a flowchart.",
+      );
       return undefined;
     }
 
@@ -220,7 +405,7 @@ const Flowchart = ({ code, source, onSourceChange }) => {
     return () => {
       cancelled = true;
     };
-  }, [code, layout]);
+  }, [code, layout, effectiveLanguage]);
 
   const handleZoomIn = () => {
     setZoom((prev) => Math.min(prev + 10, 500));
@@ -250,6 +435,9 @@ const Flowchart = ({ code, source, onSourceChange }) => {
             <h2 className="text-base font-headline font-bold tracking-widest uppercase text-white">
               Code Flowchart
             </h2>
+            <span className="text-[10px] uppercase tracking-widest text-slate-400">
+              {effectiveLanguage === "cpp" ? "C++" : effectiveLanguage}
+            </span>
           </div>
 
           {/* Source Selector */}

@@ -28,6 +28,7 @@ const EditorPage = () => {
   const codeRef = useRef(""); // shared buffer
   const personalCodeRef = useRef(""); // personal buffer
   const [activeTab, setActiveTab] = useState("shared"); // 'shared' | 'personal' | 'analytics' | 'flowchart'
+  const [language, setLanguage] = useState("javascript");
   const activeTabRef = useRef("shared"); // track latest tab in event handlers
   const [flowchartSource, setFlowchartSource] = useState("shared"); // track which code source to show in flowchart
   const displayRef = useRef(""); // what is currently shown in the editor UI
@@ -528,6 +529,7 @@ const EditorPage = () => {
                       }
                       source={flowchartSource}
                       onSourceChange={setFlowchartSource}
+                      language={language}
                     />
                   ) : isAdmin ? (
                     <AnalyticsPanel
@@ -570,6 +572,8 @@ const EditorPage = () => {
                 codeRef={codeRef}
                 personalCodeRef={personalCodeRef}
                 source={activeTab === "personal" ? "personal" : "shared"}
+                language={language}
+                onLanguageChange={setLanguage}
               />
             </div>
           </div>

@@ -40,6 +40,7 @@ const axios = require("axios");
 // Configuration for sandboxed execution using Judge0
 const USE_JUDGE0 = process.env.USE_JUDGE0 === "true";
 const JUDGE0_URL = process.env.JUDGE0_URL || "http://localhost:2358";
+const PYTHON_COMMAND = process.env.PYTHON_CMD || (process.platform === "win32" ? "py -3" : "python3");
 
 // Map basic language names to Judge0 language_id values. Update these if your Judge0
 // installation uses different ids. You can also set language mapping via env if needed.
@@ -454,7 +455,7 @@ io.on("connection", (socket) => {
       switch ((language || "").toLowerCase()) {
         case "python":
           filename = "Main.py";
-          runCmd = `python "${filename}"`;
+          runCmd = `${PYTHON_COMMAND} "${filename}"`;
           break;
         case "javascript":
         case "node":
@@ -469,14 +470,18 @@ io.on("connection", (socket) => {
           break;
         case "c":
           filename = "main.c";
-          compileCmd = `gcc "${filename}" -o main.out`;
-          runCmd = os.platform() === "win32" ? `main.out` : `./main.out`;
+          compileCmd = os.platform() === "win32"
+            ? `gcc "${filename}" -o main.exe`
+            : `gcc "${filename}" -o main.out`;
+          runCmd = os.platform() === "win32" ? `.\\main.exe` : `./main.out`;
           break;
         case "cpp":
         case "c++":
           filename = "main.cpp";
-          compileCmd = `g++ "${filename}" -o main.out`;
-          runCmd = os.platform() === "win32" ? `main.out` : `./main.out`;
+          compileCmd = os.platform() === "win32"
+            ? `g++ "${filename}" -o main.exe`
+            : `g++ "${filename}" -o main.out`;
+          runCmd = os.platform() === "win32" ? `.\\main.exe` : `./main.out`;
           break;
         default:
           // Not a compiled language - treat as shell command if user provided code as a single-line command
@@ -522,7 +527,7 @@ io.on("connection", (socket) => {
 
       // If Python requirements were declared, attempt pip install using persistent venv per socket.
       // The venv is created once per connection and reused for all subsequent runs.
-      let pythonExecPath = process.env.PYTHON_CMD || "python"; // command used to invoke python
+      let pythonExecPath = PYTHON_COMMAND; // command used to invoke python
       if (pythonReqMatch) {
         const pkgs = pythonReqMatch[1].trim();
         if (pkgs.length > 0) {
@@ -538,7 +543,7 @@ io.on("connection", (socket) => {
             // Only create venv if it doesn't already exist
             if (!fs.existsSync(venvPath)) {
               emitOut({ output: `Creating persistent virtualenv...\n`, isError: false });
-              const pyCmd = process.env.PYTHON_CMD || "python";
+              const pyCmd = PYTHON_COMMAND;
               const createVenvCmd = os.platform() === 'win32'
                 ? `${pyCmd} -m venv "${venvPath}"`
                 : `${pyCmd} -m venv "${venvPath}"`;
@@ -632,7 +637,7 @@ io.on("connection", (socket) => {
       }
 
       // Ensure Python runs use the persistent venv if available
-      if ((language || "").toLowerCase() === 'python' && pythonExecPath !== (process.env.PYTHON_CMD || "python")) {
+      if ((language || "").toLowerCase() === 'python' && pythonExecPath !== PYTHON_COMMAND) {
         runCmd = `"${pythonExecPath}" "${filename}"`;
       }
 
